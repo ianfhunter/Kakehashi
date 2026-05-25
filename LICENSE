@@ -1,0 +1,58 @@
+MIT License
+
+Copyright (c) 2026 Pedro Ortego
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Additional Notices
+------------------
+
+The MIT license above applies to the Kakehashi application source code unless a
+file or directory states otherwise.
+
+Third-party dependencies
+
+Kakehashi depends on third-party packages distributed through npm, CocoaPods,
+Gradle, Expo, React Native, and related ecosystems. Those dependencies remain
+under their own licenses.
+
+Fonts
+
+Bundled font files in assets/fonts/ and temp_fonts/ are third-party font
+software and are not relicensed under MIT. They include Source Han Sans JP,
+Space Mono, Hachi Maru Pop, Reggae One, Yuji Syuku, and Zen Kurenaido. Source
+Han Sans JP is licensed under the SIL Open Font License, Version 1.1; see
+temp_fonts/LICENSE.txt. Other bundled fonts should be used under their
+respective upstream font licenses.
+
+WaniKani and third-party content
+
+Kakehashi is not affiliated with WaniKani or Tofugu LLC. The WaniKani name and
+related trademarks, API data, and content belong to their respective owners. The
+MIT license does not grant rights to WaniKani/Tofugu content, trademarks, API
+data, or scraped/reference data. Generated or bundled reference files such as
+assets/patterns/wanikani_vocabulary_patterns.json and
+assets/pitch/wanikani_pitch_accents.json should be reviewed against their source
+terms before redistribution.
+
+Brand assets
+
+The Kakehashi name, app icons, screenshots, and other brand assets are included
+for this project. The MIT license does not grant trademark rights or permission
+to present another app or service as an official Kakehashi release.

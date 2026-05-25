@@ -1,0 +1,131 @@
+ LOG  
+📊 API Debug Summary (triggered from Settings)
+ LOG  
+================================================================================
+ LOG  📊 WaniKani API Call Summary (Last 5 minutes)
+ LOG  ================================================================================
+ LOG  Total Calls:    16
+ LOG    - API Calls:  6 (count against rate limit)
+ LOG    - Cache Hits: 10
+ LOG    - Errors:     0
+ LOG  
+Rate Limit:
+ LOG    No rate limit data available
+ LOG  
+Calls in last minute: 0 / 60 (0%)
+ LOG  Average duration: 269ms
+ LOG  
+--------------------------------------------------------------------------------
+ LOG  By Endpoint:
+ LOG  --------------------------------------------------------------------------------
+ LOG  /summary:
+ LOG    Total: 7 | API: 0 | Cache: 7 (100%) | Errors: 0
+ LOG  /user:
+ LOG    Total: 3 | API: 0 | Cache: 3 (100%) | Errors: 0
+ LOG  /assignments:
+ LOG    Total: 1 | API: 1 | Cache: 0 (0%) | Errors: 0
+ LOG  [pagination page 2]:
+ LOG    Total: 1 | API: 1 | Cache: 0 (0%) | Errors: 0
+ LOG  [pagination page 3]:
+ LOG    Total: 1 | API: 1 | Cache: 0 (0%) | Errors: 0
+ LOG  [pagination page 4]:
+ LOG    Total: 1 | API: 1 | Cache: 0 (0%) | Errors: 0
+ LOG  [pagination page 5]:
+ LOG    Total: 1 | API: 1 | Cache: 0 (0%) | Errors: 0
+ LOG  /subjects:
+ LOG    Total: 1 | API: 1 | Cache: 0 (0%) | Errors: 0
+ LOG  ================================================================================
+ LOG  
+📋 API Detailed Log (triggered from Settings)
+ LOG  
+================================================================================
+ LOG  📋 Detailed API Call Log (Last 5 minutes)
+ LOG  ================================================================================
+ LOG  
+1. 💾 [CACHE] 5:01:29 PM
+ LOG     Endpoint: /summary
+ LOG     Duration: 1286ms
+ LOG     HTTP Status: 304
+ LOG  
+2. 💾 [CACHE] 5:01:29 PM
+ LOG     Endpoint: /summary
+ LOG     Duration: 566ms
+ LOG  
+3. 💾 [CACHE] 5:01:29 PM
+ LOG     Endpoint: /user
+ LOG     Duration: 379ms
+ LOG     HTTP Status: 304
+ LOG  
+4. 💾 [CACHE] 5:01:30 PM
+ LOG     Endpoint: /user
+ LOG     Duration: 193ms
+ LOG  
+5. 💾 [CACHE] 5:01:32 PM
+ LOG     Endpoint: /summary
+ LOG     Duration: 0ms
+ LOG  
+6. 💾 [CACHE] 5:01:32 PM
+ LOG     Endpoint: /summary
+ LOG     Duration: 0ms
+ LOG  
+7. 🌐 [API] 5:01:32 PM
+ LOG     Endpoint: /assignments
+ LOG     Params: {
+             "updated_after": "2025-12-12T13:00:02.235802Z"
+           }
+ LOG     Duration: 926ms
+ LOG     HTTP Status: 200
+ LOG  
+8. 🌐 [API] 5:01:34 PM
+ LOG     Endpoint: [pagination page 2]
+ LOG     Duration: 331ms
+ LOG     HTTP Status: 200
+ LOG  
+9. 🌐 [API] 5:01:34 PM
+ LOG     Endpoint: [pagination page 3]
+ LOG     Duration: 157ms
+ LOG     HTTP Status: 200
+ LOG  
+10. 🌐 [API] 5:01:34 PM
+ LOG     Endpoint: [pagination page 4]
+ LOG     Duration: 154ms
+ LOG     HTTP Status: 200
+ LOG  
+11. 🌐 [API] 5:01:34 PM
+ LOG     Endpoint: [pagination page 5]
+ LOG     Duration: 150ms
+ LOG     HTTP Status: 200
+ LOG  
+12. 🌐 [API] 5:01:35 PM
+ LOG     Endpoint: /subjects
+ LOG     Params: {
+             "levels": [
+               15
+             ],
+             "types": [
+               "kanji",
+               "radical",
+               "vocabulary"
+             ]
+           }
+ LOG     Duration: 164ms
+ LOG     HTTP Status: 200
+ LOG  
+13. 💾 [CACHE] 5:01:41 PM
+ LOG     Endpoint: /summary
+ LOG     Duration: 0ms
+ LOG  
+14. 💾 [CACHE] 5:01:41 PM
+ LOG     Endpoint: /user
+ LOG     Duration: 0ms
+ LOG  
+15. 💾 [CACHE] 5:01:43 PM
+ LOG     Endpoint: /summary
+ LOG     Duration: 0ms
+ LOG  
+16. 💾 [CACHE] 5:01:43 PM
+ LOG     Endpoint: /summary
+ LOG     Duration: 0ms
+ LOG  
+================================================================================
+

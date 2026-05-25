@@ -1,0 +1,226 @@
+{
+  "expo": {
+    "name": "Kakehashi",
+    "slug": "kakehashi",
+    "version": "1.4.4",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "kakehashi",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "version": "1.4.4",
+      "supportsTablet": true,
+      "bundleIdentifier": "com.portego00.kakehashi",
+      "icon": "./ios/Kakehashi.icon",
+      "appStoreUrl": "https://apps.apple.com/app/id6757765444",
+      "infoPlist": {
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLSchemes": [
+              "kakehashi"
+            ]
+          }
+        ],
+        "NSCameraUsageDescription": "$(PRODUCT_NAME) needs access to your Camera to scan Japanese text.",
+        "NSPhotoLibraryUsageDescription": "Allow $(PRODUCT_NAME) to access your photos",
+        "NSPhotoLibraryAddUsageDescription": "Allow $(PRODUCT_NAME) to save photos",
+        "UIBackgroundModes": [
+          "fetch"
+        ],
+        "NSSpeechRecognitionUsageDescription": "$(PRODUCT_NAME) uses speech recognition to convert your spoken Japanese into text, allowing you to search for vocabulary by speaking words or phrases aloud.",
+        "NSMicrophoneUsageDescription": "$(PRODUCT_NAME) uses the microphone to listen to your voice when you speak Japanese words or phrases for vocabulary search.",
+        "NSAppleMusicUsageDescription": "$(PRODUCT_NAME) uses Apple Music access for playback and catalog search."
+      },
+      "entitlements": {
+        "com.apple.security.application-groups": [
+          "group.com.kakehashi.reviewdata"
+        ]
+      },
+      "appleTeamId": "854C975NWV"
+    },
+    "android": {
+      "version": "1.4.4",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/adaptive-icon-foreground.png",
+        "backgroundImage": "./assets/images/adaptive-icon-background.png",
+        "backgroundColor": "#ffffff"
+      },
+      "softwareKeyboardLayoutMode": "resize",
+      "package": "com.portego00.kakehashi",
+      "playStoreUrl": "https://play.google.com/store/apps/details?id=com.portego00.kakehashi&showAllReviews=true",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "kakehashi"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
+      ],
+      "permissions": [
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.WAKE_LOCK",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
+      ],
+      "blockedPermissions": [
+        "android.permission.ACTIVITY_RECOGNITION",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_AUDIO",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+        "android.permission.SYSTEM_ALERT_WINDOW"
+      ]
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#f0ede6",
+          "dark": {
+            "image": "./assets/images/splash-icon.png",
+            "imageWidth": 200,
+            "resizeMode": "contain",
+            "backgroundColor": "#121212"
+          }
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#ffffff"
+        }
+      ],
+      [
+        "expo-font",
+        {
+          "fonts": [
+            "./assets/fonts/SourceHanSansJP-Regular.otf",
+            "./assets/fonts/SourceHanSansJP-Bold.otf"
+          ]
+        }
+      ],
+      [
+        "react-native-vision-camera",
+        {
+          "cameraPermissionText": "$(PRODUCT_NAME) needs access to your Camera to scan Japanese text.",
+          "enableMicrophonePermission": false
+        }
+      ],
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "$(PRODUCT_NAME) uses the microphone to listen to your voice when you speak Japanese words or phrases for vocabulary search.",
+          "speechRecognitionPermission": "$(PRODUCT_NAME) uses speech recognition to convert your spoken Japanese into text, allowing you to search for vocabulary by speaking words or phrases aloud.",
+          "androidSpeechServicePackages": [
+            "com.google.android.googlequicksearchbox"
+          ]
+        }
+      ],
+      "expo-web-browser",
+      "@bacons/apple-targets",
+      "expo-secure-store",
+      "expo-sqlite",
+      "expo-audio",
+      "expo-iap",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "deploymentTarget": "15.5"
+          }
+        }
+      ],
+      "expo-image",
+      "expo-video",
+      [
+        "react-native-vlc-media-player",
+        {
+          "ios": {
+            "includeVLCKit": false
+          },
+          "android": {
+            "legacyJetifier": false
+          }
+        }
+      ],
+      "expo-background-task",
+      [
+        "expo-widgets",
+        {
+          "bundleIdentifier": "com.portego00.kakehashi.widgets",
+          "groupIdentifier": "group.com.kakehashi.reviewdata",
+          "widgets": [
+            {
+              "name": "KakehashiHomeWidget",
+              "displayName": "Kakehashi",
+              "description": "Review, critical, and streak stats",
+              "supportedFamilies": [
+                "systemSmall",
+                "systemMedium",
+                "accessoryCircular",
+                "accessoryRectangular",
+                "accessoryInline"
+              ],
+              "contentMarginsDisabled": true
+            }
+          ]
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "assetBundlePatterns": [
+      "assets/**/*"
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "build": {
+          "experimental": {
+            "ios": {
+              "appExtensions": [
+                {
+                  "bundleIdentifier": "com.portego00.kakehashi.share",
+                  "targetName": "KakehashiOCR",
+                  "entitlements": {
+                    "com.apple.security.application-groups": [
+                      "group.com.kakehashi.reviewdata"
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "projectId": "22fd8bf2-11b1-439f-b818-80b2ef36b90b"
+      }
+    },
+    "runtimeVersion": "1.4.4",
+    "updates": {
+      "url": "https://u.expo.dev/22fd8bf2-11b1-439f-b818-80b2ef36b90b",
+      "checkAutomatically": "ON_ERROR_RECOVERY"
+    }
+  }
+}

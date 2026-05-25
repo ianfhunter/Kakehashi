@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security reports
+    url: mailto:kakehashi.app@gmail.com
+    about: Please report suspected secrets, account tokens, backend access problems, or user data exposure by email.

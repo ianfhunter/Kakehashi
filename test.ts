@@ -1,0 +1,1 @@
+import { romajiToHiraganaConverter } from './src/utils/japaneseUtils'; console.log('Testing ni:', romajiToHiraganaConverter('ni')); console.log('Testing niku:', romajiToHiraganaConverter('niku')); console.log('Testing nino:', romajiToHiraganaConverter('nino')); console.log('Testing nya:', romajiToHiraganaConverter('nya'));

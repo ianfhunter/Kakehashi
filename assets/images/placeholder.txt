@@ -1,0 +1,7 @@
+This directory should contain the following images:
+- lessons.png (for the lessons card)
+- reviews.png (for the reviews card)
+- burned-turtle.png (for the burned items section)
+
+These images should be added manually since they can't be created programmatically.
+For now, the app will render without these images, but the UI will look better with them.
