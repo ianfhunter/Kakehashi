@@ -1,6 +1,7 @@
 import { router } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useIsFocused } from "@react-navigation/native";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import {
   ActivityIndicator,
   Alert,
@@ -16,6 +17,13 @@ import { useSession } from "../../src/contexts/AuthContext";
 import { useDashboardData } from "../../src/hooks/useDashboardData";
 import useBluetoothAudioKeepAlive from "../../src/hooks/useBluetoothAudioKeepAlive";
 import {
+  getPendingProgressAssignmentIds,
+  getPendingProgressCounts,
+  queueProgressAndAttemptSend,
+  syncPendingProgress,
+} from "../../src/services/offlineStudyProgressService";
+import { markReviewSubmittedInAssignmentCaches } from "../../src/services/studyProgressAssignmentCacheService";
+import {
   ApiError,
   getAvailableReviews,
   getReviewCount,
@@ -25,7 +33,6 @@ import {
   isRateLimitError,
   isUnauthorizedError,
   Subject,
-  submitReview,
 } from "../../src/utils/api";
 import { errorService } from "../../src/services/errorService";
 import { getAllSubjects } from "../../src/utils/cache";
@@ -68,8 +75,12 @@ interface ReviewItem {
 // Define interface for failed submission
 interface FailedSubmission {
   assignmentId: number;
+  subjectId?: number;
   meaningIncorrect: number;
   readingIncorrect: number;
+  createdAt?: string | null;
+  availableAt?: string | null;
+  currentSrsStage?: number;
   retryCount: number;
   isPermissionError?: boolean; // Track if failure was due to missing permissions (401)
   statusCode?: number | null;
@@ -146,6 +157,7 @@ export default function ReviewScreen() {
   });
   const [isFinished, setIsFinished] = useState(false);
   const [submittingResults, setSubmittingResults] = useState(false);
+  const [pendingReviewCount, setPendingReviewCount] = useState(0);
   const [reviewPermissionWarning, setReviewPermissionWarning] = useState<
     string | null
   >(null);
@@ -175,6 +187,15 @@ export default function ReviewScreen() {
     autoplayVocabularyAudio && !isLoading && !isFinished && isFocused;
   useBluetoothAudioKeepAlive(shouldKeepReviewAudioWarm, "Reviews");
 
+  const refreshPendingReviewCount = useCallback(async () => {
+    try {
+      const counts = await getPendingProgressCounts();
+      setPendingReviewCount(counts.review);
+    } catch (error) {
+      console.warn("[Reviews] Failed to load pending review queue count:", error);
+    }
+  }, []);
+
   // Handler for when a synonym is added from the review screen
   const handleSynonymAdded = useCallback((subjectId: number, newSynonyms: string[]) => {
     setStudyMaterialsMap(prev => {
@@ -188,6 +209,29 @@ export default function ReviewScreen() {
   const ACTIVE_QUEUE_SIZE = 10; // Number of questions to keep in active queue
   const REFILL_THRESHOLD = 3; // Refill active queue when it has this many items left
   const MAX_SUBMISSION_RETRIES = 3; // Maximum number of times to retry submitting a review
+
+  const resolveProgressCreatedAt = useCallback(
+    (
+      availableAt: string | null | undefined,
+      fallbackCreatedAt?: string | null
+    ): string | null => {
+      const now = new Date();
+      const baseDate =
+        fallbackCreatedAt && !Number.isNaN(Date.parse(fallbackCreatedAt))
+          ? new Date(fallbackCreatedAt)
+          : now;
+      const availableAtMs = availableAt ? Date.parse(availableAt) : NaN;
+
+      // Match Tsurukame semantics: only include created_at when completion is
+      // strictly after assignment.available_at.
+      if (Number.isFinite(availableAtMs) && baseDate.getTime() <= availableAtMs) {
+        return null;
+      }
+
+      return baseDate.toISOString();
+    },
+    []
+  );
   
   // Helper function to get remaining subjects count
   const getRemainingSubjectsCount = useCallback(() => {
@@ -427,6 +471,15 @@ export default function ReviewScreen() {
           const availableAtMs = Date.parse(assignmentData.available_at);
           return Number.isFinite(availableAtMs) && availableAtMs <= now.getTime();
         }
+      );
+      const pendingProgressAssignmentIds =
+        await getPendingProgressAssignmentIds().catch(() => ({
+          lesson: new Set<number>(),
+          review: new Set<number>(),
+        }));
+      availableReviewAssignments = availableReviewAssignments.filter(
+        (assignment: any) =>
+          !pendingProgressAssignmentIds.review.has(assignment.id)
       );
 
       if (availableReviewAssignments.length === 0) {
@@ -987,6 +1040,35 @@ export default function ReviewScreen() {
   };
 
   useEffect(() => {
+    if (isAuthLoading || !apiToken) {
+      setPendingReviewCount(0);
+      return;
+    }
+
+    void syncPendingProgress(apiToken)
+      .catch((error) => {
+        console.warn("[Reviews] Failed to sync pending study progress:", error);
+      })
+      .finally(() => {
+        void refreshPendingReviewCount();
+      });
+  }, [apiToken, isAuthLoading, refreshPendingReviewCount]);
+
+  useEffect(() => {
+    if (isAuthLoading || !apiToken) {
+      setPendingReviewCount(0);
+      return;
+    }
+
+    void refreshPendingReviewCount();
+    const intervalId = setInterval(() => {
+      void refreshPendingReviewCount();
+    }, 10_000);
+
+    return () => clearInterval(intervalId);
+  }, [apiToken, isAuthLoading, refreshPendingReviewCount]);
+
+  useEffect(() => {
     loadReviews().then(() => {
       // Ensure the progress state includes correctAnswersCount
       setProgress((prev) => ({
@@ -1133,22 +1215,78 @@ export default function ReviewScreen() {
     apiToken: string,
     assignmentId: number,
     meaningIncorrect: number,
-    readingIncorrect: number
+    readingIncorrect: number,
+    options: {
+      subjectId?: number;
+      availableAt?: string | null;
+      createdAt?: string | null;
+      currentSrsStage?: number;
+    } = {}
   ): Promise<SubmissionAttemptResult> => {
     try {
-      // Avoid clock-drift validation failures by relying on server time for
-      // immediate live reviews.
-      const response = (await submitReview(
-        apiToken,
+      const createdAt = resolveProgressCreatedAt(
+        options.availableAt,
+        options.createdAt
+      );
+      const queueResult = await queueProgressAndAttemptSend(apiToken, {
         assignmentId,
-        meaningIncorrect,
-        readingIncorrect
-      )) as ReviewSubmissionResponse;
+        subjectId: options.subjectId,
+        progressType: "review",
+        meaningIncorrectCount: meaningIncorrect,
+        readingIncorrectCount: readingIncorrect,
+        createdAt,
+        availableAt: options.availableAt ?? null,
+      });
+      const response = queueResult.response as ReviewSubmissionResponse | null;
 
-      // Mark that at least one review was submitted (for unmount refresh)
+      if (response || queueResult.queued) {
+        await markReviewSubmittedInAssignmentCaches({
+          assignmentId,
+          meaningIncorrectCount: meaningIncorrect,
+          readingIncorrectCount: readingIncorrect,
+          completedAt: createdAt ?? new Date().toISOString(),
+          currentSrsStage: options.currentSrsStage,
+          endingSrsStage: response?.data?.ending_srs_stage,
+          nextReviewAt:
+            response?.resources_updated?.assignment?.data?.available_at ??
+            undefined,
+        }).catch((cacheError) => {
+          console.warn(
+            "[Reviews] Failed to update local assignment review time:",
+            cacheError
+          );
+        });
+      }
+
+      if (!response) {
+        if (queueResult.queued) {
+          hasSubmittedReviewsRef.current = true;
+        }
+        if (queueResult.failure?.isPermissionError) {
+          showReviewPermissionWarning();
+        }
+
+        return {
+          response: null,
+          failure: {
+            assignmentId,
+            subjectId: options.subjectId,
+            meaningIncorrect,
+            readingIncorrect,
+            createdAt,
+            availableAt: options.availableAt ?? null,
+            currentSrsStage: options.currentSrsStage,
+            retryCount: 0,
+            isPermissionError: queueResult.failure?.isPermissionError,
+            statusCode: queueResult.failure?.statusCode ?? null,
+            failureReason:
+              queueResult.failure?.message ?? "Unknown review submission error",
+          },
+        };
+      }
+
+      // Mark that at least one review was submitted (for unmount refresh).
       hasSubmittedReviewsRef.current = true;
-
-      // Return the full response for SRS progression display
       return { response };
     } catch (error) {
       const errorObj = error instanceof Error ? error : new Error(String(error));
@@ -1188,14 +1326,20 @@ export default function ReviewScreen() {
         response: null,
         failure: {
           assignmentId,
+          subjectId: options.subjectId,
           meaningIncorrect,
           readingIncorrect,
+          createdAt: options.createdAt ?? null,
+          availableAt: options.availableAt ?? null,
+          currentSrsStage: options.currentSrsStage,
           retryCount: 0,
           isPermissionError,
           statusCode,
           failureReason,
         },
       };
+    } finally {
+      void refreshPendingReviewCount();
     }
   };
 
@@ -1327,13 +1471,23 @@ export default function ReviewScreen() {
 
       // Submit to WaniKani and show SRS card with actual response data
       pendingSubmissionCountRef.current += 1;
+      const createdAt = resolveProgressCreatedAt(
+        updatedItems[itemIndex].availableAt,
+        new Date().toISOString()
+      );
       submitReviewWithRetry(
         apiToken,
         updatedItems[itemIndex].assignmentId,
         updatedItems[itemIndex].meaningIncorrect,
         isRadical || isVocabWithoutReading
           ? 0
-          : updatedItems[itemIndex].readingIncorrect
+          : updatedItems[itemIndex].readingIncorrect,
+        {
+          subjectId: updatedItems[itemIndex].subjectId,
+          availableAt: updatedItems[itemIndex].availableAt ?? null,
+          createdAt,
+          currentSrsStage: currentSRSStage,
+        }
       )
         .then(({ response, failure }) => {
           if (response) {
@@ -1544,7 +1698,13 @@ export default function ReviewScreen() {
           apiToken,
           submission.assignmentId,
           submission.meaningIncorrect,
-          submission.readingIncorrect
+          submission.readingIncorrect,
+          {
+            subjectId: submission.subjectId,
+            createdAt: submission.createdAt ?? null,
+            availableAt: submission.availableAt ?? null,
+            currentSrsStage: submission.currentSrsStage,
+          }
         );
 
         if (response) {
@@ -1552,8 +1712,12 @@ export default function ReviewScreen() {
         } else {
           remainingSubmissions.push({
             assignmentId: submission.assignmentId,
+            subjectId: submission.subjectId,
             meaningIncorrect: submission.meaningIncorrect,
             readingIncorrect: submission.readingIncorrect,
+            createdAt: submission.createdAt ?? null,
+            availableAt: submission.availableAt ?? null,
+            currentSrsStage: submission.currentSrsStage,
             retryCount: submission.retryCount + 1,
             isPermissionError: failure?.isPermissionError,
             statusCode: failure?.statusCode,
@@ -1561,8 +1725,12 @@ export default function ReviewScreen() {
           });
           upsertFailedSubmission({
             assignmentId: submission.assignmentId,
+            subjectId: submission.subjectId,
             meaningIncorrect: submission.meaningIncorrect,
             readingIncorrect: submission.readingIncorrect,
+            createdAt: submission.createdAt ?? null,
+            availableAt: submission.availableAt ?? null,
+            currentSrsStage: submission.currentSrsStage,
             retryCount: submission.retryCount + 1,
             isPermissionError: failure?.isPermissionError,
             statusCode: failure?.statusCode,
@@ -1584,8 +1752,12 @@ export default function ReviewScreen() {
 
         remainingSubmissions.push({
           assignmentId: submission.assignmentId,
+          subjectId: submission.subjectId,
           meaningIncorrect: submission.meaningIncorrect,
           readingIncorrect: submission.readingIncorrect,
+          createdAt: submission.createdAt ?? null,
+          availableAt: submission.availableAt ?? null,
+          currentSrsStage: submission.currentSrsStage,
           retryCount: submission.retryCount + 1,
           isPermissionError,
           statusCode,
@@ -1652,7 +1824,16 @@ export default function ReviewScreen() {
             apiToken,
             item.assignmentId,
             item.meaningIncorrect,
-            readingIncorrect
+            readingIncorrect,
+            {
+              subjectId: item.subjectId,
+              availableAt: item.availableAt ?? null,
+              createdAt: resolveProgressCreatedAt(
+                item.availableAt ?? null,
+                new Date().toISOString()
+              ),
+              currentSrsStage: item.srsStage,
+            }
           );
 
           if (response) {
@@ -1666,8 +1847,15 @@ export default function ReviewScreen() {
                 ?.retryCount ?? 0;
             const failedSubmission: FailedSubmission = {
               assignmentId: item.assignmentId,
+              subjectId: item.subjectId,
               meaningIncorrect: item.meaningIncorrect,
               readingIncorrect,
+              createdAt: resolveProgressCreatedAt(
+                item.availableAt ?? null,
+                new Date().toISOString()
+              ),
+              availableAt: item.availableAt ?? null,
+              currentSrsStage: item.srsStage,
               retryCount: existingRetryCount + 1,
               isPermissionError: failure?.isPermissionError,
               statusCode: failure?.statusCode,
@@ -1692,6 +1880,21 @@ export default function ReviewScreen() {
           remainingFailures = await retryFailedSubmissions(remainingFailures);
         }
       }
+
+      const pendingSyncResult = await syncPendingProgress(apiToken);
+      if (pendingSyncResult.sent > 0) {
+        hasSubmittedReviewsRef.current = true;
+      }
+      void refreshPendingReviewCount();
+
+      const pendingProgressAssignmentIds =
+        await getPendingProgressAssignmentIds().catch(() => ({
+          lesson: new Set<number>(),
+          review: new Set<number>(),
+        }));
+      remainingFailures = remainingFailures.filter((submission) =>
+        pendingProgressAssignmentIds.review.has(submission.assignmentId)
+      );
 
       setFailedSubmissions(remainingFailures);
 
@@ -1848,6 +2051,37 @@ export default function ReviewScreen() {
     );
   };
 
+  const renderPendingReviewSyncBadge = () => {
+    if (pendingReviewCount <= 0 || isLoading || isFinished) {
+      return null;
+    }
+
+    return (
+      <View style={styles.pendingSyncBadgeContainer} pointerEvents="none">
+        <View
+          style={[
+            styles.pendingSyncBadge,
+            {
+              backgroundColor: theme.cardBackground,
+              borderColor: theme.border,
+            },
+          ]}
+        >
+          <View style={styles.pendingSyncBadgeContent}>
+            <MaterialCommunityIcons
+              name="wifi-off"
+              size={11}
+              color={theme.textSecondary}
+            />
+            <Text style={[styles.pendingSyncBadgeText, { color: theme.textColor }]}>
+              {pendingReviewCount} review{pendingReviewCount === 1 ? "" : "s"}
+            </Text>
+          </View>
+        </View>
+      </View>
+    );
+  };
+
   if (isLoading) {
     return (
       <View style={[styles.container, { backgroundColor: theme.backgroundColor }]}>
@@ -1856,6 +2090,7 @@ export default function ReviewScreen() {
           <ActivityIndicator size="large" color={theme.secondary} />
           <Text style={[styles.loadingText, { color: theme.textColor }]}>Loading reviews...</Text>
         </View>
+        {renderPendingReviewSyncBadge()}
       </View>
     );
   }
@@ -1874,6 +2109,7 @@ export default function ReviewScreen() {
           onBackToDashboard={handleBackToDashboard}
         />
       )}
+      {renderPendingReviewSyncBadge()}
     </View>
   );
 }
@@ -1895,6 +2131,30 @@ const styles = StyleSheet.create({
   },
   reviewContainer: {
     flex: 1,
+  },
+  pendingSyncBadgeContainer: {
+    position: "absolute",
+    top: 140,
+    alignSelf: "center",
+    zIndex: 50,
+  },
+  pendingSyncBadge: {
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    minWidth: 82,
+  },
+  pendingSyncBadgeContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+  },
+  pendingSyncBadgeText: {
+    fontSize: 10,
+    fontWeight: "600",
+    textAlign: "center",
   },
   progressContainer: {
     position: "absolute",

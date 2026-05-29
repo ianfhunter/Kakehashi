@@ -18,6 +18,10 @@ import {
     saveToCache
 } from "./cache";
 import { startPerformanceTimer } from "./performanceLogger";
+import {
+  getAssignmentsFromPermanentStorage,
+  saveAssignmentsToPermanentStorage,
+} from "./permanentStorage";
 import { startupDiagnostics } from "./startupDiagnostics";
 
 export const API_BASE_URL = "https://api.wanikani.com/v2";
@@ -664,6 +668,67 @@ export type ApiResponse<T> = {
   data: T;
 };
 
+function buildAssignmentsCollectionFromLocalData(
+  assignments: Assignment[],
+  dataUpdatedAt?: string
+): CollectionResponse<Assignment> {
+  const latestDataUpdatedAt =
+    dataUpdatedAt ??
+    assignments.reduce<string | null>((latest, assignment) => {
+      const assignmentDataUpdatedAt = assignment.data_updated_at;
+      if (!assignmentDataUpdatedAt) {
+        return latest;
+      }
+      if (!latest || Date.parse(assignmentDataUpdatedAt) > Date.parse(latest)) {
+        return assignmentDataUpdatedAt;
+      }
+      return latest;
+    }, null) ??
+    new Date().toISOString();
+
+  return {
+    object: "collection",
+    url: `${API_BASE_URL}/assignments`,
+    pages: {
+      per_page: 500,
+      next_url: null,
+      previous_url: null,
+    },
+    total_count: assignments.length,
+    data_updated_at: latestDataUpdatedAt,
+    data: assignments,
+  };
+}
+
+async function getPermanentAssignmentsCollection(): Promise<
+  CollectionResponse<Assignment> | null
+> {
+  const permanentAssignments = await getAssignmentsFromPermanentStorage({
+    ignoreTTL: true,
+  });
+
+  if (!permanentAssignments || permanentAssignments.length === 0) {
+    return null;
+  }
+
+  return buildAssignmentsCollectionFromLocalData(
+    permanentAssignments as Assignment[]
+  );
+}
+
+async function saveAssignmentsCollectionForOfflineUse(
+  assignments: CollectionResponse<Assignment>
+): Promise<void> {
+  try {
+    await saveAssignmentsToPermanentStorage(
+      assignments.data,
+      assignments.data_updated_at
+    );
+  } catch (error) {
+    console.warn("[API] Failed to persist assignments for offline use:", error);
+  }
+}
+
 // Note: WaniKani doesn't provide a direct email/password API
 // This function simulates what that would look like by opening the browser
 // and letting the user log in through WaniKani's website
@@ -1256,6 +1321,7 @@ export async function getAssignmentsOptimized(
             };
 
             await saveToCache(cacheKey, mergedData, allUpdated.data_updated_at);
+            await saveAssignmentsCollectionForOfflineUse(mergedData);
             await saveDataUpdatedAt('assignments', allUpdated.data_updated_at);
 
             timer.end({
@@ -1285,6 +1351,7 @@ export async function getAssignmentsOptimized(
 
       // Save to cache
       await saveToCache(cacheKey, allAssignments, allAssignments.data_updated_at);
+      await saveAssignmentsCollectionForOfflineUse(allAssignments);
       await saveDataUpdatedAt('assignments', allAssignments.data_updated_at);
 
       timer.end({ result: 'full_fetch', count: allAssignments.data.length });
@@ -1300,6 +1367,13 @@ export async function getAssignmentsOptimized(
         timer.end({ result: 'cache_fallback' });
         return cached.data;
       }
+
+      const permanentAssignments = await getPermanentAssignmentsCollection();
+      if (permanentAssignments) {
+        timer.end({ result: 'permanent_cache_fallback' });
+        return permanentAssignments;
+      }
+
       timer.end(
         { error: error instanceof Error ? error.message : String(error) },
         false
@@ -1685,8 +1759,9 @@ export async function getSubjects(
   if (params.slugs) params.slugs = [...params.slugs].sort();
   if (params.types) params.types = [...params.types].sort();
 
-  // Optimisation: Check memory cache for specific IDs first
-  if (params.ids && params.ids.length > 0 && Object.keys(params).length === 1 && !options?.skipCollectionCache) {
+  // Optimisation: Check the subject-by-id cache for specific IDs first. This is
+  // also the offline path for lesson sessions, even when collection caching is skipped.
+  if (params.ids && params.ids.length > 0 && Object.keys(params).length === 1) {
     const memoryResults = await Promise.all(params.ids.map(id => getSubjectById(id)));
     const allFound = memoryResults.every(s => !!s);
 
@@ -2974,20 +3049,96 @@ export async function startAssignment(
   return response.json();
 }
 
+function buildAvailableReviewsFromAssignments(
+  assignments: CollectionResponse<Assignment>
+): CollectionResponse<Assignment> {
+  const nowMs = Date.now();
+  const reviewAssignments = assignments.data.filter((assignment) => {
+    if (!isAssignmentInReviewQueueState(assignment.data)) {
+      return false;
+    }
+
+    const availableAtMs = Date.parse(assignment.data.available_at);
+    return Number.isFinite(availableAtMs) && availableAtMs <= nowMs;
+  });
+
+  return {
+    ...assignments,
+    data: reviewAssignments,
+    total_count: reviewAssignments.length,
+    pages: {
+      ...assignments.pages,
+      next_url: null,
+    },
+  };
+}
+
+function buildAvailableLessonsFromAssignments(
+  assignments: CollectionResponse<Assignment>
+): CollectionResponse<Assignment> {
+  const nowMs = Date.now();
+  const lessonAssignments = assignments.data.filter((assignment) => {
+    const assignmentData = assignment?.data;
+    if (!isAssignmentInLessonQueueState(assignmentData)) {
+      return false;
+    }
+
+    const unlockedAtMs = Date.parse(assignmentData.unlocked_at);
+    return Number.isFinite(unlockedAtMs) && unlockedAtMs <= nowMs;
+  });
+
+  return {
+    ...assignments,
+    data: lessonAssignments,
+    total_count: lessonAssignments.length,
+    pages: {
+      ...assignments.pages,
+      next_url: null,
+    },
+  };
+}
+
+async function getAvailableReviewsFromCachedAssignments(
+  apiToken: string
+): Promise<CollectionResponse<Assignment>> {
+  const cachedAssignments = await getAssignmentsOptimized(
+    apiToken,
+    {},
+    { forceFullRefresh: false }
+  );
+  return buildAvailableReviewsFromAssignments(cachedAssignments);
+}
+
+async function getAvailableLessonsFromCachedAssignments(
+  apiToken: string
+): Promise<CollectionResponse<Assignment>> {
+  const cachedAssignments = await getAssignmentsOptimized(
+    apiToken,
+    {},
+    { forceFullRefresh: false }
+  );
+  return buildAvailableLessonsFromAssignments(cachedAssignments);
+}
+
 /**
  * Get assignments that are available for formal reviews (will count towards SRS)
  */
 export async function getAvailableReviews(
   apiToken: string
 ): Promise<CollectionResponse<Assignment>> {
-  // Get assignments that are immediately available for review
-  const initialResponse = await getAssignments(apiToken, {
-    immediately_available_for_review: true,
-    hidden: false,
-  });
+  try {
+    // Get assignments that are immediately available for review
+    const initialResponse = await getAssignments(apiToken, {
+      immediately_available_for_review: true,
+      hidden: false,
+    });
 
-  // Handle pagination to get all pages
-  return fetchAllPages(initialResponse, apiToken);
+    // Handle pagination to get all pages
+    return fetchAllPages(initialResponse, apiToken);
+  } catch {
+    // Offline/cache fallback: use locally cached assignments if possible.
+    return getAvailableReviewsFromCachedAssignments(apiToken);
+  }
 }
 
 /**
@@ -2996,14 +3147,41 @@ export async function getAvailableReviews(
 export async function getAvailableLessons(
   apiToken: string
 ): Promise<CollectionResponse<Assignment>> {
-  // Get assignments that are immediately available for lessons
-  const initialResponse = await getAssignments(apiToken, {
-    immediately_available_for_lessons: true,
-    burned: false,
-  });
+  try {
+    // Get assignments that are immediately available for lessons
+    const initialResponse = await getAssignments(apiToken, {
+      immediately_available_for_lessons: true,
+      burned: false,
+    });
 
-  // Handle pagination to get all pages
-  return fetchAllPages(initialResponse, apiToken);
+    // Handle pagination to get all pages
+    const liveLessons = await fetchAllPages(initialResponse, apiToken);
+    if (liveLessons.data.length > 0) {
+      return liveLessons;
+    }
+
+    try {
+      const cachedLessons = await getAvailableLessonsFromCachedAssignments(
+        apiToken
+      );
+      if (cachedLessons.data.length > 0) {
+        console.warn(
+          "[Lessons] Live lesson endpoint returned zero lessons; using cached assignment-derived lessons."
+        );
+        return cachedLessons;
+      }
+    } catch (fallbackError) {
+      console.warn(
+        "[Lessons] Failed to reconcile empty live lesson response with cached assignments:",
+        fallbackError
+      );
+    }
+
+    return liveLessons;
+  } catch {
+    // Offline/cache fallback: use locally cached assignments if possible.
+    return getAvailableLessonsFromCachedAssignments(apiToken);
+  }
 }
 
 /**
@@ -3210,8 +3388,20 @@ export async function getReviewCount(apiToken: string): Promise<number> {
     }
     return buildVisibleReviewDataFromAssignments(response.data).currentReviews;
   } catch (error) {
-    console.error('Error fetching review count:', error);
-    return 0; // Return 0 if there's an error to avoid breaking the app
+    try {
+      // Offline/cache fallback.
+      const cachedAssignments = await getAssignmentsOptimized(
+        apiToken,
+        {},
+        { forceFullRefresh: false }
+      );
+      return buildVisibleReviewDataFromAssignments(cachedAssignments.data)
+        .currentReviews;
+    } catch (fallbackError) {
+      console.error("Error fetching review count:", error);
+      console.error("Error fetching cached review count:", fallbackError);
+      return 0; // Return 0 if there's an error to avoid breaking the app
+    }
   }
 }
 
@@ -3231,6 +3421,42 @@ type AssignmentLike =
   | {
       data?: Partial<Assignment["data"]> | null;
     };
+
+/**
+ * Returns true when an assignment is in a lesson-ready state.
+ */
+export function isAssignmentInLessonQueueState(
+  assignmentData: AssignmentDataLike
+): assignmentData is Partial<Assignment["data"]> & {
+  unlocked_at: string;
+  subject_id: number;
+} {
+  if (!assignmentData) {
+    return false;
+  }
+
+  if (
+    !assignmentData.unlocked_at ||
+    assignmentData.started_at ||
+    assignmentData.hidden ||
+    typeof assignmentData.subject_id !== "number"
+  ) {
+    return false;
+  }
+
+  if (
+    typeof assignmentData.srs_stage === "number" &&
+    assignmentData.srs_stage !== 0
+  ) {
+    return false;
+  }
+
+  if (assignmentData.burned_at) {
+    return false;
+  }
+
+  return true;
+}
 
 /**
  * Returns true when an assignment is in a reviewable state.
