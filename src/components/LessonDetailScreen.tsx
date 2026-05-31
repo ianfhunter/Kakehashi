@@ -137,6 +137,11 @@ const ANDROID_RIGHT_ARROW_KEY_CODE = 22;
 const WEB_LEFT_ARROW_KEY_CODE = 37;
 const WEB_RIGHT_ARROW_KEY_CODE = 39;
 
+const deferStateUpdate = (update: () => void) => {
+  const timeout = setTimeout(update, 0);
+  return () => clearTimeout(timeout);
+};
+
 interface SimilarVocabularyItem {
   id: number;
   characters: string;
@@ -430,9 +435,10 @@ const SubjectContent = ({
   const [androidKeyboardHeight, setAndroidKeyboardHeight] = useState(0);
   const [androidNoteModalLayoutHeight, setAndroidNoteModalLayoutHeight] =
     useState(0);
+  const [androidBaselineModalHeight, setAndroidBaselineModalHeight] =
+    useState(0);
   const { apiToken } = useAuthStore();
   const mountedRef = useRef(true);
-  const androidBaselineModalHeightRef = useRef(0);
 
   // Visually similar kanji state (for Niai source)
   const [niaiSimilarKanji, setNiaiSimilarKanji] = useState<any[]>([]);
@@ -464,8 +470,7 @@ const SubjectContent = ({
   }, [
     subject.id,
     subject.object,
-    subject.data?.characters,
-    subject.data?.readings,
+    subject.data,
   ]);
   const usagePatterns = useMemo(() => {
     if (subject.object !== "vocabulary" && subject.object !== "kana_vocabulary") {
@@ -477,7 +482,7 @@ const SubjectContent = ({
       typeof subject.data?.characters === "string" ? subject.data.characters : "";
 
     return getWaniKaniVocabularyPatterns(level, characters);
-  }, [subject.object, subject.data?.level, subject.data?.characters]);
+  }, [subject.object, subject.data]);
   const selectedUsagePattern =
     usagePatterns[selectedUsagePatternIndex] ?? usagePatterns[0] ?? null;
   const isVocabularySubject =
@@ -527,7 +532,7 @@ const SubjectContent = ({
     }
 
     return set;
-  }, [isVocabularySubject, subject.data?.readings]);
+  }, [isVocabularySubject, subject.data.readings]);
 
   const subjectMeaningSet = useMemo(() => {
     if (!isVocabularySubject || !Array.isArray(subject.data?.meanings)) {
@@ -543,7 +548,7 @@ const SubjectContent = ({
     }
 
     return set;
-  }, [isVocabularySubject, subject.data?.meanings]);
+  }, [isVocabularySubject, subject.data]);
 
   const similarVocabularyByReading = useMemo<SimilarVocabularyItem[]>(() => {
     if (!showSimilarVocabulary || !isVocabularySubject || subjectReadingSet.size === 0) {
@@ -685,7 +690,7 @@ const SubjectContent = ({
       mpegAudios,
       Array.isArray(subject.data?.readings) ? subject.data.readings : null
     );
-  }, [subject.data?.pronunciation_audios, subject.data?.readings]);
+  }, [subject.data.pronunciation_audios, subject.data.readings]);
 
   const orderedVocabularyComponentSubjectIds = useMemo(() => {
     if (subject.object !== "vocabulary") {
@@ -732,8 +737,8 @@ const SubjectContent = ({
       .map((entry: OrderedComponentSubjectEntry) => entry.id);
   }, [
     subject.object,
-    subject.data?.component_subject_ids,
-    subject.data?.characters,
+    subject.data.component_subject_ids,
+    subject.data.characters,
     relatedSubjects,
   ]);
   const singleKanjiVocabularyCharacter = useMemo(
@@ -742,7 +747,7 @@ const SubjectContent = ({
         subject.object,
         subject.data?.characters
       ),
-    [subject.object, subject.data?.characters]
+    [subject.object, subject.data.characters]
   );
 
   const renderPitchAccent = (withBottomMargin = false) => {
@@ -772,10 +777,16 @@ const SubjectContent = ({
     let isMounted = true;
 
     if (!shouldLoadSimilarVocabulary) {
-      setCachedVocabularySubjects([]);
-      setLoadingSimilarVocabulary(false);
+      const cancelReset = deferStateUpdate(() => {
+        if (!isMounted) {
+          return;
+        }
+        setCachedVocabularySubjects([]);
+        setLoadingSimilarVocabulary(false);
+      });
       return () => {
         isMounted = false;
+        cancelReset();
       };
     }
 
@@ -844,22 +855,18 @@ const SubjectContent = ({
   }, []);
 
   useEffect(() => {
-    if (Platform.OS !== "android") return;
-    if (androidKeyboardHeight > 0 || androidNoteModalLayoutHeight <= 0) return;
-    androidBaselineModalHeightRef.current = Math.max(
-      androidBaselineModalHeightRef.current,
-      androidNoteModalLayoutHeight,
-    );
-  }, [androidKeyboardHeight, androidNoteModalLayoutHeight]);
-
-  useEffect(() => {
     if (Platform.OS !== "android" || noteModalVisible) return;
-    setAndroidKeyboardHeight(0);
+    return deferStateUpdate(() => setAndroidKeyboardHeight(0));
   }, [noteModalVisible]);
 
   const handleNoteModalOverlayLayout = (event: LayoutChangeEvent) => {
     if (Platform.OS !== "android") return;
     const nextHeight = Math.round(event.nativeEvent.layout.height);
+    if (androidKeyboardHeight <= 0) {
+      setAndroidBaselineModalHeight((currentHeight) =>
+        Math.max(currentHeight, nextHeight),
+      );
+    }
     setAndroidNoteModalLayoutHeight((currentHeight) =>
       currentHeight === nextHeight ? currentHeight : nextHeight,
     );
@@ -887,17 +894,19 @@ const SubjectContent = ({
   // Reset scroll position when subject changes
   useEffect(() => {
     scrollViewRef.current?.scrollTo({ x: 0, y: 0, animated: false });
-    setRevealedTranslations(new Set());
-    setSentencePlaybackSpeeds({});
-    setExpandedSentenceSpeedId(null);
-    setSelectedUsagePatternIndex(0);
-    setShowAllSimilarByMeaning(false);
-    setShowAllSimilarByReading(false);
+    return deferStateUpdate(() => {
+      setRevealedTranslations(new Set());
+      setSentencePlaybackSpeeds({});
+      setExpandedSentenceSpeedId(null);
+      setSelectedUsagePatternIndex(0);
+      setShowAllSimilarByMeaning(false);
+      setShowAllSimilarByReading(false);
+    });
   }, [subject.id]);
 
   useEffect(() => {
     if (!showContextSentenceSpeedControl) {
-      setExpandedSentenceSpeedId(null);
+      return deferStateUpdate(() => setExpandedSentenceSpeedId(null));
     }
   }, [showContextSentenceSpeedControl]);
 
@@ -908,8 +917,7 @@ const SubjectContent = ({
       visuallySimilarKanjiSource !== "niai" ||
       !shouldLoadKanjiVisualSimilar
     ) {
-      setNiaiSimilarKanji([]);
-      return;
+      return deferStateUpdate(() => setNiaiSimilarKanji([]));
     }
 
     const kanjiChar = subject.data?.characters;
@@ -937,13 +945,22 @@ const SubjectContent = ({
       !singleKanjiVocabularyCharacter ||
       !shouldLoadSingleKanjiVocabularySimilarKanji
     ) {
-      setSingleKanjiVocabularySimilarKanji([]);
+      const cancelReset = deferStateUpdate(() => {
+        if (isMounted) {
+          setSingleKanjiVocabularySimilarKanji([]);
+        }
+      });
       return () => {
         isMounted = false;
+        cancelReset();
       };
     }
 
-    setSingleKanjiVocabularySimilarKanji([]);
+    const cancelInitialReset = deferStateUpdate(() => {
+      if (isMounted) {
+        setSingleKanjiVocabularySimilarKanji([]);
+      }
+    });
 
     const loadSimilarKanji = async () => {
       try {
@@ -1033,6 +1050,7 @@ const SubjectContent = ({
 
     return () => {
       isMounted = false;
+      cancelInitialReset();
     };
   }, [
     singleKanjiVocabularyCharacter,
@@ -1098,8 +1116,7 @@ const SubjectContent = ({
   // Fetch study materials for user synonyms and notes
   useEffect(() => {
     if (!apiToken || !subject.id || !shouldLoadStudyMaterials) {
-      applyStudyMaterialState(null);
-      return;
+      return deferStateUpdate(() => applyStudyMaterialState(null));
     }
 
     getStudyMaterials(apiToken, { subject_ids: [subject.id] })
@@ -1211,21 +1228,24 @@ const SubjectContent = ({
     shouldLoadMediaContextSentences,
     myAnimeListUsername,
     immersionKitAnimes,
-    userData?.level,
+    userData,
   ]);
 
   useEffect(() => {
     if (!shouldLoadMediaContextSentences) {
-      setLoadingMediaSentences(false);
-      setMediaSentences([]);
-      setNextDataOffset(0);
-      setVisibleMediaCount(10);
-      return;
+      return deferStateUpdate(() => {
+        setLoadingMediaSentences(false);
+        setMediaSentences([]);
+        setNextDataOffset(0);
+        setVisibleMediaCount(10);
+      });
     }
 
-    setNextDataOffset(0);
-    setVisibleMediaCount(10);
-    fetchMediaSentences(0);
+    return deferStateUpdate(() => {
+      setNextDataOffset(0);
+      setVisibleMediaCount(10);
+      fetchMediaSentences(0);
+    });
   }, [fetchMediaSentences, shouldLoadMediaContextSentences]);
 
   const loadMoreMediaSentences = () => {
@@ -1252,8 +1272,7 @@ const SubjectContent = ({
       !shouldLoadRadicalMnemonicIllustration ||
       !documentUrl
     ) {
-      setRadicalMnemonicImageUrl(null);
-      return;
+      return deferStateUpdate(() => setRadicalMnemonicImageUrl(null));
     }
 
     getMnemonicImageUrlFromDocument(documentUrl)
@@ -1284,13 +1303,19 @@ const SubjectContent = ({
       !shouldLoadRadicalMnemonicIllustration ||
       !radicalMnemonicImageUrl
     ) {
-      setRadicalMnemonicSvgXml(null);
-      setRadicalMnemonicImageKind("unknown");
-      return;
+      return deferStateUpdate(() => {
+        setRadicalMnemonicSvgXml(null);
+        setRadicalMnemonicImageKind("unknown");
+      });
     }
 
-    setRadicalMnemonicSvgXml(null);
-    setRadicalMnemonicImageKind("unknown");
+    const cancelInitialReset = deferStateUpdate(() => {
+      if (cancelled) {
+        return;
+      }
+      setRadicalMnemonicSvgXml(null);
+      setRadicalMnemonicImageKind("unknown");
+    });
 
     getMnemonicImageAsset(radicalMnemonicImageUrl)
       .then((asset) => {
@@ -1312,6 +1337,7 @@ const SubjectContent = ({
 
     return () => {
       cancelled = true;
+      cancelInitialReset();
     };
   }, [
     subject.id,
@@ -1320,7 +1346,6 @@ const SubjectContent = ({
     shouldLoadRadicalMnemonicIllustration,
     radicalMnemonicImageUrl,
   ]);
-
   // Format mnemonic text with HTML highlighting (similar to KanjiDetails.tsx)
   const formatMnemonic = (mnemonic: string) => {
     if (!mnemonic) return null;
@@ -4311,10 +4336,10 @@ const SubjectContent = ({
   const androidAppliedKeyboardResize =
     Platform.OS === "android" &&
     androidKeyboardHeight > 0 &&
-    androidBaselineModalHeightRef.current > 0
+    androidBaselineModalHeight > 0
       ? Math.max(
           0,
-          androidBaselineModalHeightRef.current - androidNoteModalLayoutHeight,
+          androidBaselineModalHeight - androidNoteModalLayoutHeight,
         )
       : 0;
   const androidKeyboardFallbackLift =
@@ -4439,7 +4464,6 @@ export default function LessonDetailScreen({
   const insets = useSafeAreaInsets();
   const subjectColors = useSubjectColors();
   const {
-    showStrokeOrder,
     singlePageLessonView,
     autoplayLessonReadingAudio,
     vocabularyAudioVoice,
@@ -4747,7 +4771,7 @@ export default function LessonDetailScreen({
         onBatchItemPress?.(newIndex);
       }
     },
-    [onBatchItemPress]
+    [onBatchItemPress, setIndex]
   );
 
   const isLastSubjectAndLastTab = useCallback(() => {
@@ -4856,13 +4880,13 @@ export default function LessonDetailScreen({
         draggedTowardPreviousRef.current = false;
       }
     },
-    [isLastSubjectAndLastTab, onNext]
+    [isLastSubjectAndLastTab, onNext, setIndex]
   );
 
   const handleConstellationPress = useCallback((subjectId: number) => {
     router.push({
       pathname: "/constellation",
-      params: { id: subjectId, rootId: subjectId },
+      params: { id: subjectId, rootId: subjectId, constellationDepth: "1" },
     });
   }, []);
 
@@ -6064,10 +6088,18 @@ const createStyles = (theme: any, subjectColors: SubjectColors) =>
       opacity: 0.18,
     },
     translationBlurOverlay: {
-      ...StyleSheet.absoluteFillObject,
+      position: "absolute",
+      top: 0,
+      right: 0,
+      bottom: 0,
+      left: 0,
     },
     translationRevealHint: {
-      ...StyleSheet.absoluteFillObject,
+      position: "absolute",
+      top: 0,
+      right: 0,
+      bottom: 0,
+      left: 0,
       alignItems: "center",
       justifyContent: "center",
       flexDirection: "row",
