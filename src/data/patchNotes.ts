@@ -65,6 +65,12 @@ export const PATCH_NOTES: PatchNote[] = [
         description:
           "Crosswords now avoid reusing recent words as often while still keeping puzzle quality high.",
       },
+      {
+        type: "fix",
+        title: "Lesson Pattern Audio",
+        description:
+          "Patterns of Use examples in lessons now include a play button for hearing Japanese sentences.",
+      },
     ],
   },
   {
@@ -93,23 +99,6 @@ export const PATCH_NOTES: PatchNote[] = [
         title: "Offline Lessons and Reviews",
         description:
           "Lessons and reviews now keep working without a connection. Progress is saved locally, synced when you're back online.",
-      },
-    ],
-  },
-  {
-    version: "1.2.69",
-    date: "2026-05-28",
-    changes: [
-      {
-        type: "feature",
-        title: "Choose Your Update Experience",
-        description:
-          "Added an Updates setting so you can choose whether OTA updates block startup, wait only briefly, download for the next app open, or show a Home banner. A few days ago OTA checks became slower; even though that is resolved now, this gives you a fallback if it happens again.",
-        link: {
-          route: "/settings",
-          params: { scrollTo: "updates" },
-          label: "Open Update Settings",
-        },
       },
     ],
   },
