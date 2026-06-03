@@ -36,6 +36,7 @@ import ReviewNotificationManager, {
   type PendingNotificationsResult,
 } from "../../modules/ReviewNotificationManager";
 import { useAppleMusicAuthCompat } from "../../hooks/useAppleMusicAuthCompat";
+import { useSpotifyAuth } from "../spotify/useSpotifyAuth";
 import {
   clearOfflineVocabularyAudioCache,
   getOfflineVocabularyAudioCacheStats,
@@ -503,6 +504,9 @@ export function useSettingsController() {
     setSongsLyricsDefaultStudyMode,
     appleMusicAuthStatus,
     setAppleMusicAuthStatus,
+    spotifyAuthStatus,
+    spotifyDisplayName,
+    setSpotifyAuthStatus,
     lastSeenPatchNotesVersion,
     bunproSurveyCompleted,
     setBunproSurveyCompleted,
@@ -514,10 +518,24 @@ export function useSettingsController() {
     isAuthenticating: isAppleMusicAuthenticating,
     error: appleMusicAuthError,
   } = useAppleMusicAuthCompat();
+  const {
+    available: isSpotifyAuthAvailable,
+    requestAuthorization: requestSpotifyAuthorization,
+    disconnect: disconnectSpotify,
+    refreshStatus: refreshSpotifyStatus,
+    isAuthenticating: isSpotifyAuthenticating,
+    error: spotifyAuthError,
+    profile: spotifyProfile,
+    redirectUri: spotifyRedirectUri,
+  } = useSpotifyAuth();
   const [selectedVoice, setSelectedVoice] =
     useState<string>("ja-JP-NanamiNeural");
   const [showVoiceModal, setShowVoiceModal] = useState(false);
   const [showOpenSourceModal, setShowOpenSourceModal] = useState(false);
+  const [appleMusicPlaybackAccessStatus, setAppleMusicPlaybackAccessStatus] =
+    useState<"unknown" | "available" | "subscriptionRequired" | "unavailable">(
+      "unknown",
+    );
   const [testingVoiceId, setTestingVoiceId] = useState<string | null>(null);
   const [cacheAnalysis, setCacheAnalysis] =
     useState<CacheAnalysisResult | null>(null);
@@ -605,6 +623,12 @@ export function useSettingsController() {
   >(null);
   const [bunproFeatureRequestInput, setBunproFeatureRequestInput] =
     useState("");
+
+  useEffect(() => {
+    if (appleMusicAuthStatus !== "authorized") {
+      setAppleMusicPlaybackAccessStatus("unknown");
+    }
+  }, [appleMusicAuthStatus]);
   const [isSubmittingBunproSurvey, setIsSubmittingBunproSurvey] =
     useState(false);
   const normalizedEmail = gravatarEmail?.trim().toLowerCase() ?? "";
@@ -614,8 +638,7 @@ export function useSettingsController() {
   const canAccessApiDebugTools = __DEV__ || isPortegoUser;
   const scrollViewRef = useRef<ScrollView>(null);
   const sectionChipScrollViewRef = useRef<ScrollView>(null);
-  const showMusicPlaybackSection =
-    !isSongsHiddenForEmail && Platform.OS === "ios";
+  const showMusicPlaybackSection = !isSongsHiddenForEmail;
   const showWidgetsSection = Platform.OS === "ios";
   const showDataStorageSection = hasFeatureAccess(
     "cache_management",
@@ -1508,6 +1531,19 @@ export function useSettingsController() {
     }
   };
 
+  const getSpotifyStatusLabel = () => {
+    if (!isSpotifyAuthAvailable || spotifyAuthStatus === "notConfigured") {
+      return "Not configured";
+    }
+
+    if (spotifyAuthStatus === "authorized") {
+      const displayName = spotifyProfile?.displayName || spotifyDisplayName;
+      return displayName ? `Connected as ${displayName}` : "Connected";
+    }
+
+    return "Not connected";
+  };
+
   const getAppleMusicSubscriptionAlertMessage = (error: unknown) => {
     const code =
       typeof error === "object" && error !== null && "code" in error
@@ -1529,7 +1565,10 @@ export function useSettingsController() {
     try {
       const subscription = await checkAppleMusicSubscription();
       if (!subscription.canPlayCatalogContent) {
-        setSongsPlaybackSource("youtube");
+        setAppleMusicPlaybackAccessStatus("subscriptionRequired");
+        if (songsPlaybackSource === "appleMusic") {
+          setSongsPlaybackSource("youtube");
+        }
         Alert.alert(
           "Subscription Required",
           "Apple Music playback needs an active Apple Music subscription.",
@@ -1537,10 +1576,14 @@ export function useSettingsController() {
         return false;
       }
 
+      setAppleMusicPlaybackAccessStatus("available");
       return true;
     } catch (error) {
       console.error("Apple Music subscription check failed:", error);
-      setSongsPlaybackSource("youtube");
+      setAppleMusicPlaybackAccessStatus("unavailable");
+      if (songsPlaybackSource === "appleMusic") {
+        setSongsPlaybackSource("youtube");
+      }
       Alert.alert(
         "Apple Music Unavailable",
         getAppleMusicSubscriptionAlertMessage(error),
@@ -1575,7 +1618,7 @@ export function useSettingsController() {
           "Not Authorized",
           "Apple Music authorization was not granted.",
         );
-        setSongsPlaybackSource("youtube");
+        setAppleMusicPlaybackAccessStatus("unknown");
       }
     } catch (error) {
       console.error("Apple Music login failed:", error);
@@ -1586,11 +1629,77 @@ export function useSettingsController() {
     }
   };
 
+  const handleSpotifyLogin = async () => {
+    if (!isSpotifyAuthAvailable) {
+      setSpotifyAuthStatus("notConfigured");
+      Alert.alert(
+        "Spotify Setup Required",
+        `Add EXPO_PUBLIC_SPOTIFY_CLIENT_ID and register ${spotifyRedirectUri} exactly as a redirect URI in your Spotify app settings.`,
+      );
+      return;
+    }
+
+    try {
+      const result = await requestSpotifyAuthorization();
+      if (!result || result.type !== "success") {
+        return;
+      }
+
+      const profile = await refreshSpotifyStatus();
+      if (!profile) {
+        return;
+      }
+
+      setSongsPlaybackSource("spotify");
+      if (profile.product !== "premium") {
+        Alert.alert(
+          "Spotify Connected",
+          "Your Spotify account is connected. Spotify playback control usually requires Premium; playlist import will still work.",
+        );
+        return;
+      }
+
+      Alert.alert("Connected", "Spotify playback is now ready.");
+    } catch (error) {
+      console.error("Spotify login failed:", error);
+      Alert.alert(
+        "Login Failed",
+        "Could not complete Spotify authorization. Please try again.",
+      );
+    }
+  };
+
+  const handleSpotifyLogout = async () => {
+    await disconnectSpotify();
+    if (songsPlaybackSource === "spotify") {
+      setSongsPlaybackSource("youtube");
+    }
+  };
+
   const handlePlaybackSourceChange = async (
-    source: "youtube" | "appleMusic",
+    source: "youtube" | "appleMusic" | "spotify",
   ) => {
     if (source === "youtube") {
       setSongsPlaybackSource("youtube");
+      return;
+    }
+
+    if (source === "spotify") {
+      if (!isSpotifyAuthAvailable) {
+        Alert.alert(
+          "Spotify Setup Required",
+          `Add EXPO_PUBLIC_SPOTIFY_CLIENT_ID and register ${spotifyRedirectUri} exactly as a redirect URI in your Spotify app settings.`,
+        );
+        return;
+      }
+
+      const profile = await refreshSpotifyStatus();
+      if (!profile) {
+        await handleSpotifyLogin();
+        return;
+      }
+
+      setSongsPlaybackSource("spotify");
       return;
     }
 
@@ -1611,10 +1720,7 @@ export function useSettingsController() {
     }
 
     if (appleMusicAuthStatus !== "authorized") {
-      Alert.alert(
-        "Login Required",
-        "Authorize Apple Music first, then switch playback to Apple Music.",
-      );
+      await handleAppleMusicLogin();
       return;
     }
 
@@ -2662,6 +2768,7 @@ export function useSettingsController() {
     apiToken,
     appleMusicAuthError,
     appleMusicAuthStatus,
+    appleMusicPlaybackAccessStatus,
     applyReviewShortcutValue,
     autoplayLessonReadingAudio,
     autoplayVocabularyAudio,
@@ -2726,6 +2833,7 @@ export function useSettingsController() {
     getPreviousDailyLessonReminderMinimum,
     getReviewOrderLabel,
     getSrsProgressionCardModeIconName,
+    getSpotifyStatusLabel,
     getSrsProgressionCardModeLabel,
     getVocabularyAudioVoiceIconName,
     getVocabularyAudioVoiceLabel,
@@ -2762,6 +2870,8 @@ export function useSettingsController() {
     handleRateAppPress,
     handleRemoveJpdbApiKey,
     handleRepairCache,
+    handleSpotifyLogin,
+    handleSpotifyLogout,
     handleReviewNotificationChange,
     handleReviewShortcutCaptureKeyPress,
     handleReviewShortcutCaptureSubmit,
@@ -2786,6 +2896,8 @@ export function useSettingsController() {
     isAnyDailyReminderEnabled,
     isAppleMusicAuthAvailable,
     isAppleMusicAuthenticating,
+    isSpotifyAuthAvailable,
+    isSpotifyAuthenticating,
     isCheckingCacheHealth,
     isClearingOfflineAudioCache,
     isDailyLessonLimitEnabled,
@@ -3026,6 +3138,10 @@ export function useSettingsController() {
     skipCustomLessonQuiz,
     songsLyricsDefaultStudyMode,
     songsPlaybackSource,
+    spotifyAuthError,
+    spotifyAuthStatus,
+    spotifyDisplayName,
+    spotifyRedirectUri,
     SRS_PROGRESSION_CARD_MODE_OPTIONS,
     srsProgressionCardDisplayMode,
     STOP_DETAILS_PREVIEW_IMAGE,

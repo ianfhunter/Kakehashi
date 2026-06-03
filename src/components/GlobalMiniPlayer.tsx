@@ -14,6 +14,7 @@ export default function GlobalMiniPlayer() {
     artist,
     youtubeVideoId,
     appleTrackId,
+    spotifyTrackId,
     musicSource,
     songId,
     songUrl,
@@ -48,6 +49,7 @@ export default function GlobalMiniPlayer() {
     return (
       pathname === "/songs" ||
       pathname === "/(tabs)/songs" ||
+      pathname.startsWith("/playlist-detail") ||
       pathname.startsWith("/song-lyrics")
     );
   }, [pathname, params]);
@@ -58,13 +60,13 @@ export default function GlobalMiniPlayer() {
   // Determine if we should show the player based on current route
   const shouldShowPlayer = useMemo(() => {
     // Show player if we have media loaded AND we're in the songs section
-    if (!youtubeVideoId && !appleTrackId) return false;
+    if (!youtubeVideoId && !appleTrackId && !spotifyTrackId) return false;
 
     // console.log('Current pathname:', pathname, 'Has video:', !!youtubeVideoId, 'In context:', isCurrentInSongsContext);
 
     // Show in: songs tab, song-lyrics screen, or subject details (when navigated from songs context)
     return isCurrentInSongsContext;
-  }, [youtubeVideoId, appleTrackId, isCurrentInSongsContext]);
+  }, [youtubeVideoId, appleTrackId, spotifyTrackId, isCurrentInSongsContext]);
 
   // Animate bottom offset based on current route
   // Negative values move the player UP (away from bottom)
@@ -82,7 +84,7 @@ export default function GlobalMiniPlayer() {
       damping: 18,
       mass: 1,
     });
-  }, [pathname, isPlayerExpanded]);
+  }, [bottomOffsetAnim, pathname, isPlayerExpanded]);
 
   // Check if we're NOT on the lyrics screen (to show View Lyrics button)
   const showLyricsButton = useMemo(() => {
@@ -101,18 +103,10 @@ export default function GlobalMiniPlayer() {
         artist,
         albumArt,
         songUrl: songUrl ?? "",
-        musicSource,
+        musicSource: musicSource === "apple" ? "apple" : "spotify",
       },
     });
-  }, [
-    router,
-    songId,
-    songUrl,
-    songTitle,
-    artist,
-    albumArt,
-    musicSource,
-  ]);
+  }, [router, songId, songUrl, songTitle, artist, albumArt, musicSource]);
 
   // Clear player when navigating to a different tab (not within songs context)
   useEffect(() => {
@@ -122,7 +116,7 @@ export default function GlobalMiniPlayer() {
     if (
       wasInSongsContext &&
       !isCurrentInSongsContext &&
-      (youtubeVideoId || appleTrackId)
+      (youtubeVideoId || appleTrackId || spotifyTrackId)
     ) {
       // Check if we're navigating to a different tab (tabs have /(tabs)/ in the path)
       const isTabChange =
@@ -143,13 +137,14 @@ export default function GlobalMiniPlayer() {
     isCurrentInSongsContext,
     youtubeVideoId,
     appleTrackId,
+    spotifyTrackId,
     clearPlayer,
   ]);
 
   // Keep timing state deterministic when switching tracks/videos.
   useEffect(() => {
     activeVideoIdRef.current = youtubeVideoId ?? null;
-    if (youtubeVideoId && musicSource !== "apple") {
+    if (youtubeVideoId && musicSource === "youtube") {
       setCurrentTime(0);
       setDuration(0);
     }
@@ -157,7 +152,7 @@ export default function GlobalMiniPlayer() {
 
   // Fetch duration when video loads
   useEffect(() => {
-    if (!youtubeVideoId || musicSource === "apple") {
+    if (!youtubeVideoId || musicSource !== "youtube") {
       return;
     }
 
@@ -177,7 +172,11 @@ export default function GlobalMiniPlayer() {
 
       try {
         const dur = await playerRef.current.getDuration();
-        if (!isCancelled && activeVideoIdRef.current === youtubeVideoId && dur > 0) {
+        if (
+          !isCancelled &&
+          activeVideoIdRef.current === youtubeVideoId &&
+          dur > 0
+        ) {
           setDuration(dur);
           console.log("Video duration loaded:", dur);
           return;
@@ -209,7 +208,11 @@ export default function GlobalMiniPlayer() {
     let isMounted = true;
 
     const updateProgress = async () => {
-      if (!isMounted || !youtubeVideoId || activeVideoIdRef.current !== youtubeVideoId) {
+      if (
+        !isMounted ||
+        !youtubeVideoId ||
+        activeVideoIdRef.current !== youtubeVideoId
+      ) {
         return;
       }
       if (!playerRef.current) {
@@ -234,7 +237,7 @@ export default function GlobalMiniPlayer() {
     };
 
     // Start tracking if we have a video and playback should be running.
-    if (youtubeVideoId && isPlaying && musicSource !== "apple") {
+    if (youtubeVideoId && isPlaying && musicSource === "youtube") {
       console.log("Starting progress tracking for video:", youtubeVideoId);
 
       // Immediate first update with small delay

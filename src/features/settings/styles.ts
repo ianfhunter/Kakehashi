@@ -345,6 +345,12 @@ export const styles = StyleSheet.create({
     fontSize: 14,
     marginTop: 8,
   },
+  spotifyRedirectUriText: {
+    fontFamily: "monospace",
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 6,
+  },
   playbackSelector: {
     flexDirection: "row",
     width: "100%",
@@ -361,6 +367,48 @@ export const styles = StyleSheet.create({
   playbackSourceButtonText: {
     fontSize: 14,
     fontWeight: "600",
+  },
+  musicProviderSelector: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+  },
+  musicProviderGrid: {
+    flexDirection: "row",
+    width: "100%",
+    gap: 8,
+  },
+  musicProviderButton: {
+    flex: 1,
+    minHeight: 76,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 9,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  musicProviderIconWrap: {
+    minHeight: 30,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 7,
+  },
+  musicProviderLabel: {
+    maxWidth: "100%",
+    fontSize: 12,
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  musicProviderStatus: {
+    maxWidth: "100%",
+    fontSize: 10,
+    marginTop: 2,
+    textAlign: "center",
+  },
+  musicProviderErrorBlock: {
+    paddingHorizontal: 16,
+    paddingBottom: 12,
   },
   musicLoginActions: {
     flexDirection: "row",
