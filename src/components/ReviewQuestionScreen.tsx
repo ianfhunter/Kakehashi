@@ -17,6 +17,7 @@ import {
   type KeyboardEvent,
   type LayoutChangeEvent,
   Platform,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -116,6 +117,9 @@ interface ReviewItem {
   srsStage?: number;
 }
 
+type ContextHintTranslationMode = "visible" | "toggle" | "hidden";
+type ContextHintDisplayMode = "toggle" | "visible";
+
 interface PreviousAnswerItem {
   id: number;
   subject: WKSubject;
@@ -179,10 +183,14 @@ interface ReviewQuestionProps {
   studyMaterials?: { meaning_synonyms?: string[] };
   // Callback when a synonym is added (to update parent's studyMaterialsMap)
   onSynonymAdded?: (subjectId: number, newSynonyms: string[]) => void;
-  // Context sentence hints shown on demand to help disambiguate similar meanings.
+  // Context sentence hints to help disambiguate similar meanings.
   contextSentencesHint?: { ja?: string; en?: string }[];
   // Maximum number of hint rows shown in the expandable hint panel.
   contextHintMaxItems?: number;
+  // Controls whether the Japanese hint panel is always visible or user-toggled.
+  contextHintDisplayMode?: ContextHintDisplayMode;
+  // Controls how English translations in the hint panel are shown.
+  contextHintTranslationMode?: ContextHintTranslationMode;
   // For custom modes (e.g., English -> Japanese), allow entering subject characters
   // on reading questions as a correct answer.
   acceptCharactersAsCorrectForReading?: boolean;
@@ -506,6 +514,38 @@ function extractAnkiPartOfSpeechValues(
       (partOfSpeech): partOfSpeech is string => typeof partOfSpeech === "string",
     ),
   );
+}
+
+type HighlightedTextChunk = {
+  text: string;
+  highlighted: boolean;
+};
+
+function splitTextByNeedle(text: string, needle: string): HighlightedTextChunk[] {
+  if (!needle || !text.includes(needle)) {
+    return [{ text, highlighted: false }];
+  }
+
+  const chunks: HighlightedTextChunk[] = [];
+  let cursor = 0;
+
+  while (cursor < text.length) {
+    const matchIndex = text.indexOf(needle, cursor);
+
+    if (matchIndex === -1) {
+      chunks.push({ text: text.slice(cursor), highlighted: false });
+      break;
+    }
+
+    if (matchIndex > cursor) {
+      chunks.push({ text: text.slice(cursor, matchIndex), highlighted: false });
+    }
+
+    chunks.push({ text: needle, highlighted: true });
+    cursor = matchIndex + needle.length;
+  }
+
+  return chunks;
 }
 
 interface SubjectPartsOfSpeechLookup {
@@ -977,6 +1017,8 @@ export default function ReviewQuestionScreen({
   onSynonymAdded,
   contextSentencesHint,
   contextHintMaxItems = 3,
+  contextHintDisplayMode = "toggle",
+  contextHintTranslationMode = "visible",
   acceptCharactersAsCorrectForReading = false,
   requireSubjectCharactersForReading = false,
   showCharactersAndReadingForReadingQuestion = false,
@@ -1078,6 +1120,8 @@ export default function ReviewQuestionScreen({
   const [isReplayingAudio, setIsReplayingAudio] = useState(false);
   const [inputResetNonce, setInputResetNonce] = useState(0);
   const [showContextHint, setShowContextHint] = useState(false);
+  const [showContextHintTranslations, setShowContextHintTranslations] =
+    useState(false);
   const [isUsingDefaultJitaiFont, setIsUsingDefaultJitaiFont] = useState(false);
   const [isVoiceRecognizing, setIsVoiceRecognizing] = useState(false);
   const [voiceInterimTranscript, setVoiceInterimTranscript] = useState("");
@@ -1374,6 +1418,53 @@ export default function ReviewQuestionScreen({
     !isLessonFlow &&
     reviewSubjectLevel !== null &&
     reviewSrsStageInfo !== null;
+  const displayedContextSentencesHint = useMemo(
+    () => (contextSentencesHint ?? []).slice(0, contextHintMaxItems),
+    [contextHintMaxItems, contextSentencesHint],
+  );
+  const hasContextHint = displayedContextSentencesHint.length > 0;
+  const isContextHintVisible =
+    hasContextHint && (contextHintDisplayMode === "visible" || showContextHint);
+  const shouldShowReviewItemMetadataInLayout =
+    shouldShowReviewItemMetadata && !isContextHintVisible;
+  const contextHintPanelHeight = useMemo(() => {
+    const keyboardVisible = iosKeyboardVisible || androidKeyboardHeight > 0;
+    const viewportCap = Math.round(windowHeight * (keyboardVisible ? 0.13 : 0.14));
+    const absoluteCap = keyboardVisible ? 108 : 116;
+
+    return Math.max(84, Math.min(absoluteCap, viewportCap));
+  }, [androidKeyboardHeight, iosKeyboardVisible, windowHeight]);
+  const contextHintPromptSize = isContextHintVisible
+    ? Math.min(reviewPromptCharacterSize, 96)
+    : reviewPromptCharacterSize;
+  const hasContextHintTranslations = displayedContextSentencesHint.some(
+    (sentence) => typeof sentence.en === "string" && sentence.en.trim().length > 0,
+  );
+  const canToggleContextHintTranslations =
+    contextHintTranslationMode === "toggle" && hasContextHintTranslations;
+  const shouldShowContextHintToggle = contextHintDisplayMode === "toggle";
+  const shouldShowContextHintControls =
+    shouldShowContextHintToggle ||
+    (isContextHintVisible && canToggleContextHintTranslations);
+  const shouldShowContextHintTranslations =
+    contextHintTranslationMode === "visible" ||
+    (contextHintTranslationMode === "toggle" && showContextHintTranslations);
+  const contextHintHighlightTerms = useMemo(() => {
+    const subjectCharacters =
+      typeof subject.data.characters === "string"
+        ? subject.data.characters.trim()
+        : "";
+    const unwrappedCharacters = subjectCharacters.replace(/^〜+/, "");
+
+    return Array.from(
+      new Set([subjectCharacters, unwrappedCharacters].filter(Boolean)),
+    ).sort((a, b) => b.length - a.length);
+  }, [subject.data.characters]);
+
+  useEffect(() => {
+    setShowContextHint(false);
+    setShowContextHintTranslations(false);
+  }, [currentQuestionKey]);
 
   const normalizedVoiceReadingHints = useMemo(() => {
     if (questionType !== "reading") {
@@ -1917,6 +2008,7 @@ export default function ReviewQuestionScreen({
       setIsReplayingAudio(false);
       setAnswerFeedback(null);
       setShowContextHint(false);
+      setShowContextHintTranslations(false);
       setIsUsingDefaultJitaiFont(false);
       setVoiceInterimTranscript("");
       setVoiceError(null);
@@ -4459,7 +4551,7 @@ export default function ReviewQuestionScreen({
     isCurrentQuestionAnkiRevealed &&
     !effectiveAnkiButtonlessMode;
   const ankiPreCardOverlayJustification =
-    shouldShowReviewItemMetadata && showAnkiSkipChip
+    shouldShowReviewItemMetadataInLayout && showAnkiSkipChip
       ? "space-between"
       : showAnkiSkipChip
         ? "flex-end"
@@ -4487,6 +4579,30 @@ export default function ReviewQuestionScreen({
         </View>
       </View>
     );
+  };
+
+  const handleContextHintToggle = () => {
+    if (showContextHint) {
+      setShowContextHintTranslations(false);
+    }
+
+    setShowContextHint((current) => !current);
+  };
+
+  const renderContextHintJapaneseSentence = (sentenceText: string) => {
+    const highlightTerm = contextHintHighlightTerms.find((term) =>
+      sentenceText.includes(term),
+    );
+    const chunks = splitTextByNeedle(sentenceText, highlightTerm ?? "");
+
+    return chunks.map((chunk, index) => (
+      <Text
+        key={`${chunk.text}-${index}`}
+        style={chunk.highlighted && styles.contextHintSentenceHighlight}
+      >
+        {chunk.text}
+      </Text>
+    ));
   };
 
   // Animation style for Anki button section
@@ -4805,6 +4921,7 @@ export default function ReviewQuestionScreen({
         <View
           style={[
             styles.characterWrapper,
+            isContextHintVisible && styles.characterWrapperWithOpenHint,
             shouldShowPausedSubjectDetails && styles.characterWrapperWithDetails,
           ]}
         >
@@ -4834,59 +4951,111 @@ export default function ReviewQuestionScreen({
             ) : (
               <RadicalCharacterDisplay
                 subject={subject}
-                size={reviewPromptCharacterSize}
+                size={contextHintPromptSize}
                 forceDefaultFont={isUsingDefaultJitaiFont}
               />
             )}
           </View>
 
-          {/* Context Hint Button - only show when context sentences are available */}
-          {contextSentencesHint && contextSentencesHint.length > 0 && (
+          {/* Context Hint - review mode can show Japanese text immediately. */}
+          {hasContextHint && (
             <View style={styles.contextHintContainer}>
-              <TouchableOpacity
-                style={styles.contextHintButton}
-                onPress={() => setShowContextHint(!showContextHint)}
-                activeOpacity={0.7}
-              >
-                <Ionicons
-                  name={showContextHint ? "chevron-up" : "help-circle-outline"}
-                  size={18}
-                  color="rgba(255, 255, 255, 0.8)"
-                />
-                <Text style={styles.contextHintButtonText}>
-                  {showContextHint ? "Hide Hint" : "Show Context Hint"}
-                </Text>
-              </TouchableOpacity>
-
-              {showContextHint && (
-                <View style={styles.contextHintContent}>
-                  {contextSentencesHint.slice(0, contextHintMaxItems).map((sentence, index) => (
-                    <View
-                      key={`${index}-${sentence.ja ?? ""}-${sentence.en ?? ""}`}
-                      style={styles.contextHintSentenceGroup}
+              {shouldShowContextHintControls && (
+                <View style={styles.contextHintButtonRow}>
+                  {shouldShowContextHintToggle && (
+                    <TouchableOpacity
+                      style={styles.contextHintButton}
+                      onPress={handleContextHintToggle}
+                      activeOpacity={0.7}
                     >
-                      {!!sentence.ja && (
-                        <Text
-                          style={[
-                            styles.contextHintSentence,
-                            styles.contextHintSentenceJapanese,
-                            fontStyles.japaneseText,
-                          ]}
-                          numberOfLines={3}
-                        >
-                          • {sentence.ja}
-                        </Text>
-                      )}
-                      {!!sentence.en && (
-                        <Text
-                          style={styles.contextHintSentence}
-                          numberOfLines={3}
-                        >
-                          • {sentence.en}
-                        </Text>
-                      )}
-                    </View>
-                  ))}
+                      <Ionicons
+                        name={
+                          showContextHint ? "chevron-up" : "help-circle-outline"
+                        }
+                        size={18}
+                        color="rgba(255, 255, 255, 0.8)"
+                      />
+                      <Text style={styles.contextHintButtonText}>
+                        {showContextHint ? "Hide Hint" : "Show Context Hint"}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+
+                  {isContextHintVisible && canToggleContextHintTranslations && (
+                    <TouchableOpacity
+                      style={styles.contextHintButton}
+                      onPress={() =>
+                        setShowContextHintTranslations((current) => !current)
+                      }
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons
+                        name={
+                          showContextHintTranslations
+                            ? "eye-off-outline"
+                            : "language-outline"
+                        }
+                        size={18}
+                        color="rgba(255, 255, 255, 0.8)"
+                      />
+                      <Text style={styles.contextHintButtonText}>
+                        {showContextHintTranslations
+                          ? "Hide Translation"
+                          : "Translate"}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
+
+              {isContextHintVisible && (
+                <View
+                  style={[
+                    styles.contextHintContent,
+                    { height: contextHintPanelHeight },
+                  ]}
+                >
+                  <ScrollView
+                    style={[
+                      styles.contextHintScrollView,
+                      { height: contextHintPanelHeight },
+                    ]}
+                    contentContainerStyle={styles.contextHintScrollContent}
+                    alwaysBounceVertical={false}
+                    keyboardShouldPersistTaps="handled"
+                    nestedScrollEnabled
+                    scrollEnabled
+                    showsVerticalScrollIndicator
+                  >
+                    {displayedContextSentencesHint.map((sentence, index) => (
+                      <View
+                        key={`${index}-${sentence.ja ?? ""}-${sentence.en ?? ""}`}
+                        style={styles.contextHintSentenceGroup}
+                      >
+                        {!!sentence.ja && (
+                          <Text
+                            selectable
+                            style={[
+                              styles.contextHintSentence,
+                              styles.contextHintSentenceJapanese,
+                              fontStyles.japaneseText,
+                            ]}
+                          >
+                            <Text>• </Text>
+                            {renderContextHintJapaneseSentence(sentence.ja)}
+                          </Text>
+                        )}
+                        {shouldShowContextHintTranslations && !!sentence.en && (
+                          <Text
+                            selectable
+                            style={styles.contextHintSentence}
+                          >
+                            • {sentence.en}
+                          </Text>
+                        )}
+                      </View>
+                    ))}
+                  </ScrollView>
                 </View>
               )}
             </View>
@@ -4906,14 +5075,14 @@ export default function ReviewQuestionScreen({
             >
             {((shouldShowSrsProgressionCard && !shouldUseCompactSrsProgressionCard) ||
               showAnkiSkipChip ||
-              shouldShowReviewItemMetadata) && (
+              shouldShowReviewItemMetadataInLayout) && (
               <View
                 style={[
                   styles.ankiPreCardOverlayRow,
                   { justifyContent: ankiPreCardOverlayJustification },
                 ]}
               >
-                {shouldShowReviewItemMetadata && renderReviewMetadata(true)}
+                {shouldShowReviewItemMetadataInLayout && renderReviewMetadata(true)}
                 {showAnkiSkipChip && (
                   <TouchableOpacity
                     style={[
@@ -5360,7 +5529,9 @@ export default function ReviewQuestionScreen({
               </Animated.View>
             )}
 
-            {!shouldUsePausedSubjectDetailsMode && renderReviewMetadata()}
+            {!shouldUsePausedSubjectDetailsMode &&
+              shouldShowReviewItemMetadataInLayout &&
+              renderReviewMetadata()}
 
             {/* Paused on wrong answer - show correct answer and actions */}
             {isPausedOnWrong && !shouldUsePausedSubjectDetailsMode && (
@@ -6190,6 +6361,13 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
+    minHeight: 0,
+  },
+  characterWrapperWithOpenHint: {
+    justifyContent: "flex-start",
+    paddingTop: 8,
+    paddingBottom: 8,
+    overflow: "hidden",
   },
   characterWrapperWithDetails: {
     minHeight: 96,
@@ -7104,6 +7282,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     width: "100%",
     paddingHorizontal: 20,
+    flexShrink: 1,
+  },
+  contextHintButtonRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    flexWrap: "wrap",
+    gap: 8,
   },
   contextHintButton: {
     flexDirection: "row",
@@ -7123,12 +7309,19 @@ const styles = StyleSheet.create({
     marginTop: 12,
     backgroundColor: "rgba(0, 0, 0, 0.4)",
     borderRadius: 12,
-    padding: 14,
     width: "100%",
     maxWidth: 350,
+    overflow: "hidden",
+  },
+  contextHintScrollView: {
+    width: "100%",
+  },
+  contextHintScrollContent: {
+    padding: 14,
+    paddingBottom: 6,
   },
   contextHintSentenceGroup: {
-    marginBottom: 8,
+    marginBottom: 10,
   },
   contextHintSentence: {
     color: "rgba(255, 255, 255, 0.9)",
@@ -7139,5 +7332,9 @@ const styles = StyleSheet.create({
   contextHintSentenceJapanese: {
     fontStyle: "normal",
     color: "rgba(255, 255, 255, 0.95)",
+  },
+  contextHintSentenceHighlight: {
+    color: "#FFD166",
+    fontWeight: "800",
   },
 });
