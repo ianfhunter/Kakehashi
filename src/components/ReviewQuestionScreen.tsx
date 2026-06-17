@@ -1464,6 +1464,8 @@ export default function ReviewQuestionScreen({
     hasContextHint && (contextHintDisplayMode === "visible" || showContextHint);
   const shouldShowReviewItemMetadataInLayout =
     shouldShowReviewItemMetadata && !isContextHintVisible;
+  const shouldShowAnkiReviewItemMetadata =
+    effectiveAnkiCardMode && shouldShowReviewItemMetadata;
   const contextHintPanelHeight = useMemo(() => {
     const keyboardVisible = iosKeyboardVisible || androidKeyboardHeight > 0;
     const viewportCap = Math.round(windowHeight * (keyboardVisible ? 0.13 : 0.14));
@@ -4251,7 +4253,7 @@ export default function ReviewQuestionScreen({
     jitaiEnabled && !overridePromptText && Boolean(subject.data.characters);
   const showReviewSearchButton = reviewSearchButtonEnabled && !isLessonFlow;
   const showWrapUpButton = isWrapUpAvailable && !isLessonFlow && !isWrapUpMode;
-  const showWrapUpIndicator = isWrapUpMode;
+  const showWrapUpIndicator = isWrapUpMode && !isLessonFlow;
   const hasFloatingWrapUpPill = showWrapUpButton || showWrapUpIndicator;
   const floatingToolButtonsTop = hasFloatingWrapUpPill
     ? FLOATING_REVIEW_TOOL_BUTTON_TOP_WITH_WRAP_UP
@@ -4831,7 +4833,7 @@ export default function ReviewQuestionScreen({
     isCurrentQuestionAnkiRevealed &&
     !effectiveAnkiButtonlessMode;
   const ankiPreCardOverlayJustification =
-    shouldShowReviewItemMetadataInLayout && showAnkiSkipChip
+    shouldShowAnkiReviewItemMetadata && showAnkiSkipChip
       ? "space-between"
       : showAnkiSkipChip
         ? "flex-end"
@@ -5022,15 +5024,22 @@ export default function ReviewQuestionScreen({
         </TouchableOpacity>
       )}
 
-      {/* Floating Wrap Up Mode Indicator */}
+      {/* Floating Wrap Up Mode Toggle */}
       {showWrapUpIndicator && (
-        <View style={styles.floatingWrapUpIndicator}>
+        <TouchableOpacity
+          style={styles.floatingWrapUpIndicator}
+          onPress={onWrapUp}
+          disabled={!onWrapUp}
+          activeOpacity={0.75}
+          accessibilityRole="button"
+          accessibilityLabel={`Exit wrap up mode. ${remainingSubjectsCount} subjects remaining.`}
+        >
           <View style={styles.floatingWrapUpIndicatorInner} />
           <Ionicons name="flag" size={18} color="#ffd700" />
           <Text style={styles.floatingWrapUpIndicatorText}>
             Wrapping Up ({remainingSubjectsCount} left)
           </Text>
-        </View>
+        </TouchableOpacity>
       )}
 
       {skipCueText && (
@@ -5355,14 +5364,14 @@ export default function ReviewQuestionScreen({
             >
             {((shouldShowSrsProgressionCard && !shouldUseCompactSrsProgressionCard) ||
               showAnkiSkipChip ||
-              shouldShowReviewItemMetadataInLayout) && (
+              shouldShowAnkiReviewItemMetadata) && (
               <View
                 style={[
                   styles.ankiPreCardOverlayRow,
                   { justifyContent: ankiPreCardOverlayJustification },
                 ]}
               >
-                {shouldShowReviewItemMetadataInLayout && renderReviewMetadata(true)}
+                {shouldShowAnkiReviewItemMetadata && renderReviewMetadata(true)}
                 {showAnkiSkipChip && (
                   <TouchableOpacity
                     style={[
