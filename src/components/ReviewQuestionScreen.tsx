@@ -916,6 +916,7 @@ const RadicalCharacterDisplay = React.memo(
     if (subject.data.characters) {
       return (
         <Text
+          key={`${subject.id}-${subject.data.characters}-${fontToUse}-${size}`}
           selectable
           style={[
             styles.characterText,
@@ -924,6 +925,7 @@ const RadicalCharacterDisplay = React.memo(
           ]}
           numberOfLines={1}
           adjustsFontSizeToFit
+          minimumFontScale={0.5}
         >
           {subject.data.characters}
         </Text>
@@ -972,9 +974,11 @@ const AnsweredItemCharacterDisplay = React.memo(function AnsweredItemCharacterDi
   if (subject.data.characters) {
     return (
       <Text
+        key={`${subject.id}-${subject.data.characters}`}
         style={styles.answeredItemCharacter}
         numberOfLines={1}
         adjustsFontSizeToFit
+        minimumFontScale={0.5}
       >
         {subject.data.characters}
       </Text>
