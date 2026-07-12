@@ -118,6 +118,52 @@ const FLOATING_REVIEW_TOOL_BUTTON_SIZE = 40;
 const FLOATING_REVIEW_TOOL_BUTTON_RADIUS = FLOATING_REVIEW_TOOL_BUTTON_SIZE / 2;
 const FLOATING_REVIEW_TOOL_BUTTON_TOP_WITH_WRAP_UP = 184;
 const FLOATING_REVIEW_TOOL_BUTTON_TOP_WITHOUT_WRAP_UP = 140;
+const REVIEW_CHARACTER_AUTO_SIZE_MIN_SCALE = 0.5;
+const ANSWERED_ITEM_CHARACTER_BOX_WIDTH = 200;
+const ANSWERED_ITEM_CHARACTER_HORIZONTAL_PADDING = 24;
+
+function shouldUseReviewCharacterAutoSize(): boolean {
+  // iOS handles adjustsFontSizeToFit reliably; Android shrinks aggressively
+  // inside flex layouts when height is constrained.
+  return Platform.OS === "ios";
+}
+
+function getReviewCharacterFontSize(
+  baseSize: number,
+  characters: string | undefined,
+  containerWidth: number,
+): number {
+  const text = characters?.trim() ?? "";
+  if (!text || shouldUseReviewCharacterAutoSize()) {
+    return baseSize;
+  }
+
+  const availableWidth = containerWidth * 0.9;
+  const estimatedWidth = baseSize * text.length * 0.92;
+  if (estimatedWidth <= availableWidth) {
+    return baseSize;
+  }
+
+  const fittedSize = (availableWidth / text.length) * 0.95;
+  return Math.max(baseSize * REVIEW_CHARACTER_AUTO_SIZE_MIN_SCALE, fittedSize);
+}
+
+function getAnsweredItemCharacterFontSize(characters: string): number {
+  const baseSize = Math.min(width * 0.07, 30);
+  if (shouldUseReviewCharacterAutoSize()) {
+    return baseSize;
+  }
+
+  const availableWidth =
+    ANSWERED_ITEM_CHARACTER_BOX_WIDTH - ANSWERED_ITEM_CHARACTER_HORIZONTAL_PADDING;
+  const estimatedWidth = baseSize * characters.length * 0.85;
+  if (estimatedWidth <= availableWidth) {
+    return baseSize;
+  }
+
+  const fittedSize = (availableWidth / characters.length) * 0.9;
+  return Math.max(baseSize * REVIEW_CHARACTER_AUTO_SIZE_MIN_SCALE, fittedSize);
+}
 const FLOATING_REVIEW_TOOL_BUTTON_GAP = 8;
 const FLOATING_REVIEW_TOOL_BUTTON_RIGHT = 16;
 
@@ -937,22 +983,32 @@ const RadicalCharacterDisplay = React.memo(
     const fontToUse = forceDefaultFont
       ? DEFAULT_JITAI_FONT_FAMILY
       : selectedRandomFont;
+    const { width: windowWidth } = useWindowDimensions();
+    const characters = subject.data.characters;
+    const characterFontSize = getReviewCharacterFontSize(
+      size,
+      characters,
+      windowWidth,
+    );
+    const useCharacterAutoSize = shouldUseReviewCharacterAutoSize();
 
-    if (subject.data.characters) {
+    if (characters) {
       return (
         <Text
-          key={`${subject.id}-${subject.data.characters}-${fontToUse}-${size}`}
+          key={`${subject.id}-${characters}-${fontToUse}-${characterFontSize}`}
           selectable
           style={[
             styles.characterText,
             fontStyles.japaneseText,
-            { fontFamily: fontToUse, fontSize: size },
+            { fontFamily: fontToUse, fontSize: characterFontSize },
           ]}
           numberOfLines={1}
-          adjustsFontSizeToFit
-          minimumFontScale={0.5}
+          adjustsFontSizeToFit={useCharacterAutoSize}
+          minimumFontScale={
+            useCharacterAutoSize ? REVIEW_CHARACTER_AUTO_SIZE_MIN_SCALE : undefined
+          }
         >
-          {subject.data.characters}
+          {characters}
         </Text>
       );
     }
@@ -997,13 +1053,23 @@ const AnsweredItemCharacterDisplay = React.memo(function AnsweredItemCharacterDi
   const svgXml = useRemoteSvg(svgUrl, "#ffffff");
 
   if (subject.data.characters) {
+    const answeredCharacterFontSize = getAnsweredItemCharacterFontSize(
+      subject.data.characters,
+    );
+    const useCharacterAutoSize = shouldUseReviewCharacterAutoSize();
+
     return (
       <Text
-        key={`${subject.id}-${subject.data.characters}`}
-        style={styles.answeredItemCharacter}
+        key={`${subject.id}-${subject.data.characters}-${answeredCharacterFontSize}`}
+        style={[
+          styles.answeredItemCharacter,
+          { fontSize: answeredCharacterFontSize },
+        ]}
         numberOfLines={1}
-        adjustsFontSizeToFit
-        minimumFontScale={0.5}
+        adjustsFontSizeToFit={useCharacterAutoSize}
+        minimumFontScale={
+          useCharacterAutoSize ? REVIEW_CHARACTER_AUTO_SIZE_MIN_SCALE : undefined
+        }
       >
         {subject.data.characters}
       </Text>
@@ -6798,6 +6864,7 @@ const styles = StyleSheet.create({
   characterContainer: {
     alignItems: "center",
     justifyContent: "center",
+    flexShrink: 0,
   },
   reviewMetadataStack: {
     alignSelf: "flex-start",
