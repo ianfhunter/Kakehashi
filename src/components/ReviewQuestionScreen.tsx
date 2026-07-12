@@ -71,6 +71,19 @@ import {
   loadDownloadedJitaiFonts,
   type DownloadedJitaiFont,
 } from "../utils/jitaiFonts";
+import {
+  computeReviewVerticalLayoutScale,
+  CONTEXT_HINT_PROMPT_SIZE_CAP,
+  CHARACTER_WRAPPER_DETAILS_MIN_HEIGHT,
+  CHARACTER_WRAPPER_DETAILS_PADDING_BOTTOM,
+  CHARACTER_WRAPPER_PADDING,
+  CONTEXT_HINT_BUTTON_ROW_HEIGHT,
+  CONTEXT_HINT_CONTAINER_MARGIN_TOP,
+  CONTEXT_HINT_CONTENT_MARGIN_TOP,
+  REVIEW_METADATA_STACK_GAP,
+  REVIEW_METADATA_STACK_MARGIN_BOTTOM,
+  scaleReviewVerticalSpacing,
+} from "../utils/reviewVerticalLayoutScale";
 import { pickPreferredPronunciationAudios } from "../utils/pronunciationAudio";
 import { pickBestImage, useRemoteSvg } from "../utils/radicalSvg";
 import { getNiaiSimilarKanjiSubjects } from "../utils/niaiSimilarKanji";
@@ -118,6 +131,52 @@ const FLOATING_REVIEW_TOOL_BUTTON_SIZE = 40;
 const FLOATING_REVIEW_TOOL_BUTTON_RADIUS = FLOATING_REVIEW_TOOL_BUTTON_SIZE / 2;
 const FLOATING_REVIEW_TOOL_BUTTON_TOP_WITH_WRAP_UP = 184;
 const FLOATING_REVIEW_TOOL_BUTTON_TOP_WITHOUT_WRAP_UP = 140;
+const REVIEW_CHARACTER_AUTO_SIZE_MIN_SCALE = 0.5;
+const ANSWERED_ITEM_CHARACTER_BOX_WIDTH = 200;
+const ANSWERED_ITEM_CHARACTER_HORIZONTAL_PADDING = 24;
+
+function shouldUseReviewCharacterAutoSize(): boolean {
+  // iOS handles adjustsFontSizeToFit reliably; Android shrinks aggressively
+  // inside flex layouts when height is constrained.
+  return Platform.OS === "ios";
+}
+
+function getReviewCharacterFontSize(
+  baseSize: number,
+  characters: string | undefined,
+  containerWidth: number,
+): number {
+  const text = characters?.trim() ?? "";
+  if (!text || shouldUseReviewCharacterAutoSize()) {
+    return baseSize;
+  }
+
+  const availableWidth = containerWidth * 0.9;
+  const estimatedWidth = baseSize * text.length * 0.92;
+  if (estimatedWidth <= availableWidth) {
+    return baseSize;
+  }
+
+  const fittedSize = (availableWidth / text.length) * 0.95;
+  return Math.max(baseSize * REVIEW_CHARACTER_AUTO_SIZE_MIN_SCALE, fittedSize);
+}
+
+function getAnsweredItemCharacterFontSize(characters: string): number {
+  const baseSize = Math.min(width * 0.07, 30);
+  if (shouldUseReviewCharacterAutoSize()) {
+    return baseSize;
+  }
+
+  const availableWidth =
+    ANSWERED_ITEM_CHARACTER_BOX_WIDTH - ANSWERED_ITEM_CHARACTER_HORIZONTAL_PADDING;
+  const estimatedWidth = baseSize * characters.length * 0.85;
+  if (estimatedWidth <= availableWidth) {
+    return baseSize;
+  }
+
+  const fittedSize = (availableWidth / characters.length) * 0.9;
+  return Math.max(baseSize * REVIEW_CHARACTER_AUTO_SIZE_MIN_SCALE, fittedSize);
+}
 const FLOATING_REVIEW_TOOL_BUTTON_GAP = 8;
 const FLOATING_REVIEW_TOOL_BUTTON_RIGHT = 16;
 
@@ -937,22 +996,32 @@ const RadicalCharacterDisplay = React.memo(
     const fontToUse = forceDefaultFont
       ? DEFAULT_JITAI_FONT_FAMILY
       : selectedRandomFont;
+    const { width: windowWidth } = useWindowDimensions();
+    const characters = subject.data.characters;
+    const characterFontSize = getReviewCharacterFontSize(
+      size,
+      characters,
+      windowWidth,
+    );
+    const useCharacterAutoSize = shouldUseReviewCharacterAutoSize();
 
-    if (subject.data.characters) {
+    if (characters) {
       return (
         <Text
-          key={`${subject.id}-${subject.data.characters}-${fontToUse}-${size}`}
+          key={`${subject.id}-${characters}-${fontToUse}-${characterFontSize}`}
           selectable
           style={[
             styles.characterText,
             fontStyles.japaneseText,
-            { fontFamily: fontToUse, fontSize: size },
+            { fontFamily: fontToUse, fontSize: characterFontSize },
           ]}
           numberOfLines={1}
-          adjustsFontSizeToFit
-          minimumFontScale={0.5}
+          adjustsFontSizeToFit={useCharacterAutoSize}
+          minimumFontScale={
+            useCharacterAutoSize ? REVIEW_CHARACTER_AUTO_SIZE_MIN_SCALE : undefined
+          }
         >
-          {subject.data.characters}
+          {characters}
         </Text>
       );
     }
@@ -997,13 +1066,23 @@ const AnsweredItemCharacterDisplay = React.memo(function AnsweredItemCharacterDi
   const svgXml = useRemoteSvg(svgUrl, "#ffffff");
 
   if (subject.data.characters) {
+    const answeredCharacterFontSize = getAnsweredItemCharacterFontSize(
+      subject.data.characters,
+    );
+    const useCharacterAutoSize = shouldUseReviewCharacterAutoSize();
+
     return (
       <Text
-        key={`${subject.id}-${subject.data.characters}`}
-        style={styles.answeredItemCharacter}
+        key={`${subject.id}-${subject.data.characters}-${answeredCharacterFontSize}`}
+        style={[
+          styles.answeredItemCharacter,
+          { fontSize: answeredCharacterFontSize },
+        ]}
         numberOfLines={1}
-        adjustsFontSizeToFit
-        minimumFontScale={0.5}
+        adjustsFontSizeToFit={useCharacterAutoSize}
+        minimumFontScale={
+          useCharacterAutoSize ? REVIEW_CHARACTER_AUTO_SIZE_MIN_SCALE : undefined
+        }
       >
         {subject.data.characters}
       </Text>
@@ -1519,16 +1598,6 @@ export default function ReviewQuestionScreen({
     shouldShowReviewItemMetadata && !isContextHintVisible;
   const shouldShowAnkiReviewItemMetadata =
     effectiveAnkiCardMode && shouldShowReviewItemMetadata;
-  const contextHintPanelHeight = useMemo(() => {
-    const keyboardVisible = iosKeyboardVisible || androidKeyboardHeight > 0;
-    const viewportCap = Math.round(windowHeight * (keyboardVisible ? 0.13 : 0.14));
-    const absoluteCap = keyboardVisible ? 108 : 116;
-
-    return Math.max(84, Math.min(absoluteCap, viewportCap));
-  }, [androidKeyboardHeight, iosKeyboardVisible, windowHeight]);
-  const contextHintPromptSize = isContextHintVisible
-    ? Math.min(reviewPromptCharacterSize, 96)
-    : reviewPromptCharacterSize;
   const hasContextHintTranslations = displayedContextSentencesHint.some(
     (sentence) => typeof sentence.en === "string" && sentence.en.trim().length > 0,
   );
@@ -1538,6 +1607,67 @@ export default function ReviewQuestionScreen({
   const shouldShowContextHintControls =
     shouldShowContextHintToggle ||
     (isContextHintVisible && canToggleContextHintTranslations);
+  const baseContextHintPanelHeight = useMemo(() => {
+    const keyboardVisible = iosKeyboardVisible || androidKeyboardHeight > 0;
+    const viewportCap = Math.round(windowHeight * (keyboardVisible ? 0.13 : 0.14));
+    const absoluteCap = keyboardVisible ? 108 : 116;
+
+    return Math.max(84, Math.min(absoluteCap, viewportCap));
+  }, [androidKeyboardHeight, iosKeyboardVisible, windowHeight]);
+  const reviewVerticalLayoutScale = useMemo(() => {
+    if (Platform.OS !== "android") {
+      return 1;
+    }
+
+    const baselineQuestionHeight =
+      androidBaselineQuestionHeightRef.current > 0
+        ? androidBaselineQuestionHeightRef.current
+        : androidQuestionLayoutHeight;
+
+    return computeReviewVerticalLayoutScale({
+      androidKeyboardHeight,
+      androidQuestionLayoutHeight,
+      baselineQuestionHeight,
+      baseContextHintPanelHeight,
+      isContextHintVisible,
+      reviewPromptCharacterSize,
+      shouldShowContextHintControls,
+      shouldShowPausedSubjectDetails,
+      shouldShowReviewItemMetadataInLayout,
+      windowHeight,
+    });
+  }, [
+    androidKeyboardHeight,
+    androidQuestionLayoutHeight,
+    baseContextHintPanelHeight,
+    isContextHintVisible,
+    reviewPromptCharacterSize,
+    shouldShowContextHintControls,
+    shouldShowPausedSubjectDetails,
+    shouldShowReviewItemMetadataInLayout,
+    windowHeight,
+  ]);
+  const scaleVerticalSpacing = useCallback(
+    (value: number, min = 0) =>
+      Platform.OS === "android"
+        ? scaleReviewVerticalSpacing(value, reviewVerticalLayoutScale, min)
+        : value,
+    [reviewVerticalLayoutScale],
+  );
+  const contextHintPanelHeight =
+    Platform.OS === "android"
+      ? Math.max(56, scaleVerticalSpacing(baseContextHintPanelHeight, 56))
+      : baseContextHintPanelHeight;
+  const scaledReviewPromptSize =
+    reviewPromptCharacterSize *
+    (Platform.OS === "android" ? reviewVerticalLayoutScale : 1);
+  const contextHintPromptSize = isContextHintVisible
+    ? Math.min(
+        scaledReviewPromptSize,
+        CONTEXT_HINT_PROMPT_SIZE_CAP *
+          (Platform.OS === "android" ? reviewVerticalLayoutScale : 1),
+      )
+    : scaledReviewPromptSize;
   const shouldShowContextHintTranslations =
     contextHintTranslationMode === "visible" ||
     (contextHintTranslationMode === "toggle" && showContextHintTranslations);
@@ -4969,7 +5099,17 @@ export default function ReviewQuestionScreen({
 
     return (
       <View
-        style={[styles.reviewMetadataStack, inRow && styles.reviewMetadataStackInRow]}
+        style={[
+          styles.reviewMetadataStack,
+          inRow && styles.reviewMetadataStackInRow,
+          Platform.OS === "android" && {
+            gap: scaleVerticalSpacing(REVIEW_METADATA_STACK_GAP, 4),
+            marginBottom: scaleVerticalSpacing(
+              REVIEW_METADATA_STACK_MARGIN_BOTTOM,
+              4,
+            ),
+          },
+        ]}
         pointerEvents="none"
       >
         <View style={styles.reviewMetadataPill}>
@@ -5334,7 +5474,26 @@ export default function ReviewQuestionScreen({
           style={[
             styles.characterWrapper,
             isContextHintVisible && styles.characterWrapperWithOpenHint,
+            isContextHintVisible &&
+              Platform.OS === "android" && {
+                paddingTop: scaleVerticalSpacing(CHARACTER_WRAPPER_PADDING, 4),
+                paddingBottom: scaleVerticalSpacing(
+                  CHARACTER_WRAPPER_PADDING,
+                  4,
+                ),
+              },
             shouldShowPausedSubjectDetails && styles.characterWrapperWithDetails,
+            shouldShowPausedSubjectDetails &&
+              Platform.OS === "android" && {
+                minHeight: scaleVerticalSpacing(
+                  CHARACTER_WRAPPER_DETAILS_MIN_HEIGHT,
+                  56,
+                ),
+                paddingBottom: scaleVerticalSpacing(
+                  CHARACTER_WRAPPER_DETAILS_PADDING_BOTTOM,
+                  4,
+                ),
+              },
           ]}
         >
           <View style={styles.characterContainer}>
@@ -5371,7 +5530,17 @@ export default function ReviewQuestionScreen({
 
           {/* Context Hint - review mode can show Japanese text immediately. */}
           {hasContextHint && (
-            <View style={styles.contextHintContainer}>
+            <View
+              style={[
+                styles.contextHintContainer,
+                Platform.OS === "android" && {
+                  marginTop: scaleVerticalSpacing(
+                    CONTEXT_HINT_CONTAINER_MARGIN_TOP,
+                    6,
+                  ),
+                },
+              ]}
+            >
               {shouldShowContextHintControls && (
                 <View style={styles.contextHintButtonRow}>
                   {shouldShowContextHintToggle && (
@@ -5424,6 +5593,12 @@ export default function ReviewQuestionScreen({
                 <View
                   style={[
                     styles.contextHintContent,
+                    Platform.OS === "android" && {
+                      marginTop: scaleVerticalSpacing(
+                        CONTEXT_HINT_CONTENT_MARGIN_TOP,
+                        4,
+                      ),
+                    },
                     { height: contextHintPanelHeight },
                   ]}
                 >
