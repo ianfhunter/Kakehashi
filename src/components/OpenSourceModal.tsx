@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import { openBrowserAsync } from "expo-web-browser";
 import React, { useState } from "react";
 import {
   ActivityIndicator,
@@ -44,6 +45,7 @@ export default function OpenSourceModal({
       const canOpenRepository = await Linking.canOpenURL(
         KAKEHASHI_REPOSITORY_URL,
       );
+
       if (!canOpenRepository) {
         Alert.alert(
           "Unable to Open GitHub",
@@ -53,7 +55,7 @@ export default function OpenSourceModal({
       }
 
       await Promise.resolve(onClose());
-      await Linking.openURL(KAKEHASHI_REPOSITORY_URL);
+      await openBrowserAsync(KAKEHASHI_REPOSITORY_URL);
     } catch (error) {
       console.error("Failed to open GitHub repository:", error);
       Alert.alert(
